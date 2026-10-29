@@ -51,4 +51,43 @@ describe('HandwritingVectorSynthesizer (Apple Math Notes Style)', () => {
     );
     expect(strokes).toEqual([]);
   });
+
+  it('renders every lowercase letter as real ink', () => {
+    for (const ch of 'abcdefghijklmnopqrstuvwxyz') {
+      const strokes = HandwritingVectorSynthesizer.synthesize(
+        ch,
+        { x: 10, y: 10 },
+        { color: '#a3e635', avgStrokeWidth: 3.5, slantAngle: 0 }
+      );
+      expect(strokes.length).toBeGreaterThan(0);
+      for (const s of strokes) {
+        expect(s.points.length).toBeGreaterThan(1);
+        expect(s.points.every((p) => isFinite(p.x) && isFinite(p.y))).toBe(true);
+      }
+    }
+  });
+
+  it('renders every uppercase letter as real ink', () => {
+    for (const ch of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
+      const strokes = HandwritingVectorSynthesizer.synthesize(
+        ch,
+        { x: 10, y: 10 },
+        { color: '#a3e635', avgStrokeWidth: 3.5, slantAngle: 0 }
+      );
+      expect(strokes.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('writes a full word advancing left to right', () => {
+    const strokes = HandwritingVectorSynthesizer.synthesize(
+      'Taylor',
+      { x: 100, y: 100 },
+      { color: '#a3e635', avgStrokeWidth: 3.5, slantAngle: 0 }
+    );
+    expect(strokes.length).toBeGreaterThan(6);
+    const firstX = strokes[0].points[0].x;
+    const lastStroke = strokes[strokes.length - 1];
+    const lastX = lastStroke.points[lastStroke.points.length - 1].x;
+    expect(lastX).toBeGreaterThan(firstX + 50);
+  });
 });

@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import type { 
   ToolMode, 
   Point, 
@@ -20,10 +20,16 @@ import { InlineMathProjection } from '../InlineMathProjection';
 import { InteractiveFunctionPlot } from '../InteractiveFunctionPlot';
 import { LivingPhysicsWidget } from '../LivingPhysicsWidget';
 import { LivingInkPhysicsEngine, type PhysicsSystemType } from '../../services/physics/livingInkPhysics';
+import { eraseStrokePixels } from '../../services/ink/pixelErase';
 import { Zap, Activity, Trash2, X, Target, Sparkles, PenLine, Sigma, Atom } from 'lucide-react';
 import { OnDeviceStrokeRecognizer, type ProjectedEquation } from '../../services/calcInk/strokeRecognizer';
+import { refineEquationsWithNeural } from '../../services/recognition/refine';
+import { neuralGlyphService } from '../../services/recognition/neuralGlyphService';
 import { HandwritingVectorSynthesizer } from '../../services/calcInk/handwritingSynthesis';
 import { MathParser } from '../../services/calcInk/mathParser';
+import { solveWithSteps, type SolutionStep } from '../../services/calcInk/solutionSteps';
+import { transcribeWords } from '../../services/recognition/transcribe';
+import type { ConversationContext } from '../../services/copilot/conversationAgent';
 import { 
   isStrokeIntersected, 
   isScratchGesture, 
@@ -64,6 +70,9 @@ interface InfiniteCanvasProps {
   strokes: Stroke[];
   onAddStroke: (stroke: Stroke) => void;
   onDeleteStrokes?: (ids: string[]) => void;
+  onReplaceStrokes?: (ids: string[], newStrokes: Stroke[], pushUndo?: boolean) => void;
+  onSpeakText?: (text: string) => void;
+  onCanvasContext?: (ctx: ConversationContext) => void;
   onUpdateTheorem: (theorem: TheoremItem) => void;
   onUpdateProofNode: (proof: ProofNode) => void;
   onUpdateDocument: (doc: DocumentItem) => void;
@@ -105,6 +114,9 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
   strokes,
   onAddStroke,
   onDeleteStrokes,
+  onReplaceStrokes,
+  onSpeakText,
+  onCanvasContext,
   onUpdateTheorem,
   onUpdateProofNode,
   onUpdateDocument,
@@ -158,6 +170,8 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
   // Pen drawing & eraser states
   const [isDrawing, setIsDrawing] = useState(false);
   const [isErasing, setIsErasing] = useState(false);
+  const [eraserMode, setEraserMode] = useState<'stroke' | 'pixel'>('stroke');
+  const pixelEraseUndoPushed = useRef(false);
   const [currentStrokePoints, setCurrentStrokePoints] = useState<Point[]>([]);
 
   // Selection Marquee Box & Circle-to-Solve States
@@ -169,11 +183,19 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
   const [_selectedEquations, setSelectedEquations] = useState<ProjectedEquation[]>([]);
   const [selectedFormulaText, setSelectedFormulaText] = useState<string>('');
   const [selectedSolveOutput, setSelectedSolveOutput] = useState<string | null>(null);
+  // Live transcription of the current selection (derived, never stale).
+  const selectedTranscription = useMemo(() => {
+    if (selectedStrokes.length === 0) return '';
+    return transcribeWords(selectedStrokes)
+      .map((w) => w.text)
+      .join(' ');
+  }, [selectedStrokes]);
 
   // Circle-to-Solve Reticle State
   const [circleReticle, setCircleReticle] = useState<{
     bbox: BoundingBox;
     equation: ProjectedEquation;
+    steps: SolutionStep[] | null;
   } | null>(null);
 
   // Real-time scanned equations
@@ -216,12 +238,47 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
 
   // Real-time equation scanner across active strokes
   useEffect(() => {
+    let cancelled = false;
+    const snapshot = strokes;
     const timer = setTimeout(() => {
-      const scanned = OnDeviceStrokeRecognizer.scanEquations(strokes);
+      const scanned = OnDeviceStrokeRecognizer.scanEquations(snapshot);
+      if (cancelled) return;
       setProjectedEquations(scanned);
+      // Neural refinement runs off the critical path in a Web Worker and
+      // only swaps in confident digit corrections (no-op when unavailable).
+      refineEquationsWithNeural(scanned, snapshot, neuralGlyphService)
+        .then((refined) => {
+          if (!cancelled && refined !== scanned) {
+            setProjectedEquations(refined);
+          }
+        })
+        .catch(() => {
+          // Geometric projection already stands; ignore worker failures.
+        });
     }, 100);
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [strokes]);
+
+  // Report latest equation + transcription up for conversation mode.
+  // Deduped so parent state only changes when the context actually changes.
+  const lastCtxKey = useRef('');
+  useEffect(() => {
+    if (!onCanvasContext) return;
+    const latest = projectedEquations[0];
+    const ctx: ConversationContext = {
+      equationText: latest?.expressionText,
+      solutionDisplay: latest?.evaluation.display,
+      transcription: selectedTranscription || undefined,
+    };
+    const key = JSON.stringify(ctx);
+    if (key !== lastCtxKey.current) {
+      lastCtxKey.current = key;
+      onCanvasContext(ctx);
+    }
+  }, [projectedEquations, selectedTranscription, onCanvasContext]);
 
   // Convert projected equation result into digital handwritten ink strokes (Apple Math Notes style)
   const handleWriteInInk = useCallback((eq: ProjectedEquation) => {
@@ -312,14 +369,30 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
     onDiscoverProofs(item);
   }, [selectedFormulaText, selectionBbox, onDiscoverProofs]);
 
-  // Spatial eraser helper
+  // Spatial eraser helper (stroke mode deletes whole strokes, pixel mode splits them)
   const eraseAtPoint = useCallback((worldPt: Point) => {
     const eraserRadius = 20 / viewTransform.scale;
+    if (eraserMode === 'pixel' && onReplaceStrokes) {
+      const ids: string[] = [];
+      const replacements: Stroke[] = [];
+      for (const s of strokes) {
+        const parts = eraseStrokePixels(s, worldPt, eraserRadius);
+        if (parts !== null) {
+          ids.push(s.id);
+          replacements.push(...parts);
+        }
+      }
+      if (ids.length > 0) {
+        onReplaceStrokes(ids, replacements, !pixelEraseUndoPushed.current);
+        pixelEraseUndoPushed.current = true;
+      }
+      return;
+    }
     const hitStrokes = strokes.filter(s => isStrokeIntersected(s, worldPt, eraserRadius));
     if (hitStrokes.length > 0 && onDeleteStrokes) {
       onDeleteStrokes(hitStrokes.map(s => s.id));
     }
-  }, [strokes, viewTransform.scale, onDeleteStrokes]);
+  }, [strokes, viewTransform.scale, onDeleteStrokes, onReplaceStrokes, eraserMode]);
 
   // Spacebar pan toggle
   useEffect(() => {
@@ -448,6 +521,7 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
     // Eraser trigger
     if (tool === 'eraser' && e.button === 0) {
       setIsErasing(true);
+      pixelEraseUndoPushed.current = false;
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
       const worldPt = screenToWorld(e.clientX, e.clientY);
       eraseAtPoint(worldPt);
@@ -674,10 +748,17 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
             const solved = OnDeviceStrokeRecognizer.recognizeStrokeGroup(circleCheck.enclosedStrokes) ||
               OnDeviceStrokeRecognizer.scanEquations(circleCheck.enclosedStrokes)[0] || null;
             if (solved) {
+              const stepped = solveWithSteps(solved.expressionText);
+              const steps =
+                stepped && stepped.steps.length > 0 ? stepped.steps : null;
               setCircleReticle({
                 bbox: circleCheck.bbox!,
                 equation: solved,
+                steps,
               });
+              if (steps && onSpeakText) {
+                onSpeakText(steps.map((s) => s.spoken).join('. ') + '.');
+              }
               // Ensure circled equation is in projected equations list
               setProjectedEquations(prev => {
                 const rest = prev.filter(p => p.id !== solved.id);
@@ -803,6 +884,27 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
         className="absolute inset-0 pointer-events-none z-10"
         style={{ width: '100%', height: '100%' }}
       />
+
+      {/* Eraser mode toggle: whole-stroke vs pixel-precise erase */}
+      {tool === 'eraser' && (
+        <div className="absolute top-4 left-4 z-30 flex rounded-xl border border-slate-200 dark:border-white/10 bg-white/95 dark:bg-slate-950/90 shadow-lg overflow-hidden">
+          {(['stroke', 'pixel'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setEraserMode(mode)}
+              title={mode === 'stroke' ? 'Erase whole strokes' : 'Erase part of a stroke'}
+              className={`px-3.5 py-2 text-xs font-semibold transition-colors cursor-pointer ${
+                eraserMode === mode
+                  ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              {mode === 'stroke' ? 'Stroke' : 'Pixel'}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Real-Time Interactive Smart Space HUD (CalcInk PS Feature - Multi-Workout Support) */}
       {projectedEquations.length > 0 && (
@@ -1073,6 +1175,16 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
                 title="Directly edit or verify the recognized math expression"
               />
 
+              {/* Transcribed handwriting for the selection */}
+              {selectedTranscription && (
+                <span
+                  className="font-medium text-slate-300 px-2 py-0.5 rounded-lg bg-slate-800/80 border border-slate-700/60 max-w-44 truncate"
+                  title={`Transcribed text: ${selectedTranscription}`}
+                >
+                  {selectedTranscription}
+                </span>
+              )}
+
               {/* Evaluated Solution Badge if Solved */}
               {selectedSolveOutput && (
                 <span className="font-bold text-lime-400 drop-shadow-[0_0_8px_rgba(163,230,53,0.7)] px-2 py-0.5 rounded-lg bg-lime-500/10 border border-lime-500/30">
@@ -1300,6 +1412,23 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
                 <X className="w-3 h-3" />
               </button>
             </div>
+
+            {/* Step-by-step working for the circled equation */}
+            {circleReticle.steps && circleReticle.steps.length > 0 && (
+              <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 px-3 py-2 rounded-xl bg-slate-950/95 border border-emerald-400/60 text-xs font-mono shadow-2xl backdrop-blur-xl whitespace-nowrap z-40">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                  Working
+                </div>
+                <ol className="space-y-0.5">
+                  {circleReticle.steps.map((step, i) => (
+                    <li key={i} className="text-emerald-200">
+                      <span className="text-slate-500 mr-2">{i + 1}.</span>
+                      {step.expression}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
           </div>
         )}
       </div>

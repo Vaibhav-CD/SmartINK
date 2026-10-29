@@ -1,9 +1,11 @@
 import * as pdfjsLib from 'pdfjs-dist';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url';
 
-// Set worker source for client-side multi-threaded PDF rendering & extraction
+// Bundled worker source: version-locked to the installed pdfjs-dist and
+// served from our own bundle so document parsing works fully offline.
 try {
   if (typeof window !== 'undefined' && pdfjsLib.GlobalWorkerOptions) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version || '3.11.174'}/pdf.worker.min.js`;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
   }
 } catch {
   // safe fallback

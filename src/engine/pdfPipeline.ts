@@ -1,11 +1,12 @@
 import * as pdfjsLib from 'pdfjs-dist';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url';
 import { DocumentItem, DocumentMetadata, DocumentPage } from '../types/document';
 import { normalizeDocumentText } from './textNormalization';
 
-// Configure PDF.js worker
+// Bundled PDF.js worker: version-locked to the installed pdfjs-dist and
+// served from our own bundle so document parsing works fully offline.
 if (typeof window !== 'undefined' && pdfjsLib.GlobalWorkerOptions) {
-  // Use official CDN worker compatible with version 3.11.174
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 }
 
 /**

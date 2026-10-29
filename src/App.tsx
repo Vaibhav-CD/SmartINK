@@ -26,6 +26,10 @@ import { MathParser } from './services/calcInk/mathParser';
 import { ConfirmationModal } from './components/ConfirmationModal';
 import { PdfService } from './services/pdf/pdfService';
 import { PdfReaderModal } from './components/PdfReaderModal';
+import type { ConversationContext } from './services/copilot/conversationAgent';
+import { extractWriteTopic, resolveWriteup } from './services/copilot/canvasWriter';
+import { HandwritingVectorSynthesizer } from './services/calcInk/handwritingSynthesis';
+import { getStrokesBoundingBox } from './services/calcInk/coordinateTransform';
 
 export function App() {
   const [currentView, setCurrentView] = useState<'home' | 'canvas'>('home');
@@ -33,6 +37,7 @@ export function App() {
   const [penColor, setPenColor] = useState<string>('#a3e635');
   const [strokeWidth, setStrokeWidth] = useState<number>(3.5);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [canvasContext, setCanvasContext] = useState<ConversationContext>({});
 
   // Undo / Redo History Stack (CalcInk PS Requirement)
   const [undoStack, setUndoStack] = useState<Stroke[][]>([]);
@@ -178,6 +183,19 @@ export function App() {
     updateActivePage((page) => ({
       ...page,
       strokes: page.strokes.filter((s) => !idSet.has(s.id)),
+    }));
+  }, [activePage.strokes, updateActivePage]);
+
+  // Pixel-erase replacement helper (atomic swap, one undo entry per gesture)
+  const handleReplaceStrokes = useCallback((strokeIds: string[], newStrokes: Stroke[], pushUndo = true) => {
+    const idSet = new Set(strokeIds);
+    if (pushUndo) {
+      setUndoStack((prev) => [...prev, activePage.strokes]);
+      setRedoStack([]);
+    }
+    updateActivePage((page) => ({
+      ...page,
+      strokes: [...page.strokes.filter((s) => !idSet.has(s.id)), ...newStrokes],
     }));
   }, [activePage.strokes, updateActivePage]);
 
@@ -593,12 +611,56 @@ export function App() {
   };
 
   // Voice command execution
+  // Voice "write X on screen": ink the write-up directly onto the canvas.
+  const handleWriteOnCanvas = useCallback(async (topic: string) => {
+    const writeup = await resolveWriteup(topic);
+    if (!writeup) {
+      speakText(`I couldn't find ${topic}. Try another topic.`);
+      return;
+    }
+    const box =
+      activePage.strokes.length > 0
+        ? getStrokesBoundingBox(activePage.strokes)
+        : null;
+    const startX = box ? Math.max(60, box.minX) : 140;
+    let y = box ? box.maxY + 70 : 220;
+    const newStrokes: Stroke[] = [];
+    for (const line of [writeup.title, ...writeup.lines]) {
+      newStrokes.push(
+        ...HandwritingVectorSynthesizer.synthesize(
+          line,
+          { x: startX, y },
+          { color: '#a3e635', avgStrokeWidth: 3.2, slantAngle: 4 },
+          34
+        )
+      );
+      y += 34 * 1.7;
+    }
+    setUndoStack((prev) => [...prev, activePage.strokes]);
+    setRedoStack([]);
+    updateActivePage((page) => ({
+      ...page,
+      strokes: [...page.strokes, ...newStrokes],
+    }));
+    speakText(writeup.spoken);
+  }, [activePage.strokes, updateActivePage, speakText]);
+
   const handleExecuteVoiceCommand = async (command: string) => {
     setVoiceState((prev) => ({
       ...prev,
       transcript: command,
       status: 'processing',
     }));
+
+    // "Write X on screen" bypasses intent parsing and inks directly.
+    const writeTopic = extractWriteTopic(command);
+    if (writeTopic) {
+      await handleWriteOnCanvas(writeTopic);
+      setTimeout(() => {
+        setVoiceState((prev) => ({ ...prev, status: 'idle' }));
+      }, 1500);
+      return;
+    }
 
     const parsed = metaAI.parseVoiceIntent(command);
 
@@ -650,6 +712,20 @@ export function App() {
         ? 'projectile'
         : 'pendulum';
       handleAddPhysicsSimulation(simType);
+    } else {
+      // Dictation fallback: pin unrecognized speech as a reviewable sticky.
+      const note: SocraticAnnotation = {
+        id: `voice-${Date.now()}`,
+        targetId: 'custom',
+        position: { x: 380, y: 350 },
+        question: command.length > 140 ? command.slice(0, 140) + '…' : command,
+        hint: 'Captured from voice dictation. Resolve after review.',
+      };
+      updateActivePage((page) => ({
+        ...page,
+        socraticHints: [...page.socraticHints, note],
+      }));
+      speakText(`Noted: ${command}`);
     }
 
     setTimeout(() => {
@@ -950,6 +1026,9 @@ export function App() {
                 updateActivePage((page) => ({ ...page, strokes: [...page.strokes, s] }));
               }}
               onDeleteStrokes={handleDeleteStrokes}
+              onReplaceStrokes={handleReplaceStrokes}
+              onSpeakText={speakText}
+              onCanvasContext={setCanvasContext}
               onUpdatePlot={(pl) => setFunctionPlots(prev => prev.map(p => p.id === pl.id ? pl : p))}
               onDeletePlot={(id) => setFunctionPlots(prev => prev.filter(p => p.id !== id))}
               onConvertToTheoremCard={handleConvertToTheoremCard}
@@ -1078,6 +1157,19 @@ export function App() {
                   ),
                 }));
               }}
+              onReplaceStrokes={(ids, newStrokes) => {
+                const idSet = new Set(ids);
+                setWorkspace((prev) => ({
+                  ...prev,
+                  pages: prev.pages.map((p) =>
+                    p.id === secondaryPage.id
+                      ? { ...p, strokes: [...p.strokes.filter((s) => !idSet.has(s.id)), ...newStrokes] }
+                      : p
+                  ),
+                }));
+              }}
+              onSpeakText={speakText}
+              onCanvasContext={setCanvasContext}
               onUpdatePlot={(pl) => setFunctionPlots(prev => prev.map(p => p.id === pl.id ? pl : p))}
               onDeletePlot={(id) => setFunctionPlots(prev => prev.filter(p => p.id !== id))}
               onConvertToTheoremCard={handleConvertToTheoremCard}
@@ -1221,6 +1313,9 @@ export function App() {
               updateActivePage((page) => ({ ...page, strokes: [...page.strokes, s] }));
             }}
             onDeleteStrokes={handleDeleteStrokes}
+            onReplaceStrokes={handleReplaceStrokes}
+            onSpeakText={speakText}
+            onCanvasContext={setCanvasContext}
             onUpdatePlot={(pl) => setFunctionPlots(prev => prev.map(p => p.id === pl.id ? pl : p))}
             onDeletePlot={(id) => setFunctionPlots(prev => prev.filter(p => p.id !== id))}
             onConvertToTheoremCard={handleConvertToTheoremCard}

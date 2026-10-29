@@ -2,6 +2,8 @@ import type { Point, Stroke } from '../../types';
 import { MathParser, type EvaluationResult } from './mathParser';
 import { getStrokesBoundingBox, type BoundingBox } from './coordinateTransform';
 import { PointCloudRecognizer } from './pointCloudRecognizer';
+import { glyphSignature } from '../recognition/rasterize';
+import { matchDivideSign } from './structuralSymbols';
 
 export interface HandwritingStyle {
   avgStrokeWidth: number;
@@ -340,7 +342,41 @@ export class OnDeviceStrokeRecognizer {
    * High-Precision Structural Classifier for Digits (0-9), Operators (+, -, *, /, =),
    * Variables (x, y), Parentheses (open/close), and Decimals
    */
+  /**
+   * Template-matched symbol second opinion. Strictly additive: only symbol
+   * characters outside the geometric vocabulary can win, so existing
+   * digit/operator behavior is untouched.
+   */
+  private static readonly TEMPLATE_SYMBOL_CHARS = new Set([
+    '∫', 'Σ', 'Δ', 'θ', '∞', '≤', '≥', '≠', '→', '±',
+    'sqrt', 'pi', '%', '/', '^', '*',
+  ]);
+
   public static classifyGlyph(strokes: Stroke[]): { char: string; confidence: number } {
+    // Structural division sign first: templates cannot separate ÷ dots
+    // from a plus bar, but the 3-stroke structure is unambiguous.
+    if (matchDivideSign(strokes)) return { char: '/', confidence: 0.93 };
+    const geometric = this.classifyGlyphGeometric(strokes);
+    if (strokes.length === 0) return geometric;
+    const ranked = PointCloudRecognizer.classifyTopN(
+      strokes.map((s) => s.points),
+      3
+    );
+    // A template symbol wins only when it is strong on its own merits AND
+    // beats geometric confidence, so pinned digit/operator behavior stands.
+    const symbolBest = ranked.find(
+      (r) =>
+        this.TEMPLATE_SYMBOL_CHARS.has(r.char) &&
+        r.score >= 0.85 &&
+        r.score >= geometric.confidence
+    );
+    if (symbolBest && symbolBest.char !== geometric.char) {
+      return { char: symbolBest.char, confidence: symbolBest.score };
+    }
+    return geometric;
+  }
+
+  private static classifyGlyphGeometric(strokes: Stroke[]): { char: string; confidence: number } {
     if (strokes.length === 0) return { char: '', confidence: 0 };
 
     const bbox = getStrokesBoundingBox(strokes);
@@ -1006,7 +1042,7 @@ public static extractHandwritingStyle(strokes: Stroke[]): HandwritingStyle {
  * Two-Dimensional Math OCR (PS Requirement #3)
  * Parses an equation cluster with fraction line and superscript detection.
  */
-public static parseClusterToExpression(cluster: Stroke[]): {
+public static parseClusterToExpression(cluster: Stroke[], glyphOverrides?: Map<string, string>): {
   expressionStr: string;
   isPlottable: boolean;
   functionBody: string;
@@ -1030,8 +1066,8 @@ public static parseClusterToExpression(cluster: Stroke[]): {
       });
 
       if (above.length > 0 && below.length > 0) {
-        const numExpr = this.parseSimpleGlyphSequence(above);
-        const denExpr = this.parseSimpleGlyphSequence(below);
+        const numExpr = this.parseSimpleGlyphSequence(above, glyphOverrides);
+        const denExpr = this.parseSimpleGlyphSequence(below, glyphOverrides);
 
         const fracIds = new Set([stroke.id, ...above.map((s) => s.id), ...below.map((s) => s.id)]);
         const otherStrokes = cluster.filter((s) => !fracIds.has(s.id));
@@ -1045,10 +1081,15 @@ public static parseClusterToExpression(cluster: Stroke[]): {
           return sb && sb.minX > b.maxX;
         });
 
-        const leftExpr = leftStrokes.length > 0 ? this.parseSimpleGlyphSequence(leftStrokes) : '';
-        const rightExpr = rightStrokes.length > 0 ? this.parseSimpleGlyphSequence(rightStrokes) : '';
+        const leftExpr = leftStrokes.length > 0 ? this.parseSimpleGlyphSequence(leftStrokes, glyphOverrides) : '';
+        const rightExpr = rightStrokes.length > 0 ? this.parseSimpleGlyphSequence(rightStrokes, glyphOverrides) : '';
 
-        const fullExpr = `${leftExpr}(${numExpr})/(${denExpr})${rightExpr}`;
+        // A bar with single dots above and below is a division sign (÷),
+        // not a fraction — emit a plain division operator.
+        const isDivisionSign = numExpr.trim() === '.' && denExpr.trim() === '.';
+        const fullExpr = isDivisionSign
+          ? `${leftExpr}/${rightExpr}`
+          : `${leftExpr}(${numExpr})/(${denExpr})${rightExpr}`;
         const plotCheck = this.isPlottableExpression(fullExpr);
         return {
           expressionStr: fullExpr,
@@ -1060,7 +1101,7 @@ public static parseClusterToExpression(cluster: Stroke[]): {
   }
 
   // Standard linear sequence
-  const fullExpr = this.parseSimpleGlyphSequence(cluster);
+  const fullExpr = this.parseSimpleGlyphSequence(cluster, glyphOverrides);
   const plotCheck = this.isPlottableExpression(fullExpr);
   return {
     expressionStr: fullExpr,
@@ -1073,13 +1114,17 @@ public static parseClusterToExpression(cluster: Stroke[]): {
  * Parses simple glyph sequences with connected-component clustering,
  * superscript detection, contextual disambiguation, and natural word spacing
  */
-private static parseSimpleGlyphSequence(strokes: Stroke[]): string {
+private static parseSimpleGlyphSequence(strokes: Stroke[], glyphOverrides?: Map<string, string>): string {
   if (strokes.length === 0) return '';
   const glyphs = this.clusterStrokesIntoGlyphs(strokes);
   const glyphResults: { char: string; confidence: number; box: BoundingBox }[] = [];
 
   for (const g of glyphs) {
-    const classification = this.classifyGlyph(g);
+    const override = glyphOverrides?.get(glyphSignature(g));
+    const classification =
+      override !== undefined
+        ? { char: override, confidence: 0.99 }
+        : this.classifyGlyph(g);
     const gBox = getStrokesBoundingBox(g);
     if (gBox) {
       glyphResults.push({ ...classification, box: gBox });
@@ -1152,6 +1197,8 @@ private static parseSimpleGlyphSequence(strokes: Stroke[]): string {
     .replace(/\bt\s*a\s*n\b/gi, 'tan')
     .replace(/\bs\s*q\s*r\s*t\b/gi, 'sqrt')
     .replace(/\bl\s*0\s*g\b/gi, 'log')
+    .replace(/÷/g, '/')
+    .replace(/sqrt([a-zA-Z0-9])/g, 'sqrt($1)')
     .replace(/\b(sin|cos|tan|sqrt|log|ln)\s+([a-zA-Z0-9]+)/gi, '$1($2)');
 
   return expressionStr;

@@ -499,6 +499,75 @@ export class PointCloudRecognizer {
       { x: 65, y: 70 }, { x: 75, y: 70 }
     ]);
 
+    // --- MATH SYMBOLS (single-glyph operators, greek, relations) ---
+
+    // Integral '∫'
+    this.addTemplate('sym_integral', '∫', [
+      { x: 62, y: 10 }, { x: 46, y: 24 }, { x: 42, y: 44 },
+      { x: 48, y: 58 }, { x: 58, y: 72 }, { x: 56, y: 88 }, { x: 44, y: 94 }
+    ]);
+
+    // Summation 'Σ'
+    this.addTemplate('sym_sigma', 'Σ', [
+      { x: 72, y: 15 }, { x: 28, y: 15 }, { x: 46, y: 50 },
+      { x: 28, y: 85 }, { x: 72, y: 85 }
+    ]);
+
+    // Delta 'Δ'
+    this.addTemplate('sym_delta', 'Δ', [
+      { x: 50, y: 12 }, { x: 20, y: 85 }, { x: 80, y: 85 }, { x: 50, y: 12 }
+    ]);
+
+    // Theta 'θ'
+    this.addTemplate('sym_theta', 'θ', [
+      { x: 50, y: 32 }, { x: 34, y: 44 }, { x: 34, y: 62 },
+      { x: 50, y: 74 }, { x: 66, y: 62 }, { x: 66, y: 44 }, { x: 50, y: 32 },
+      { x: 26, y: 53 }, { x: 74, y: 53 }
+    ]);
+
+    // Infinity '∞'
+    this.addTemplate('sym_infinity', '∞', [
+      { x: 32, y: 54 }, { x: 42, y: 40 }, { x: 56, y: 54 },
+      { x: 70, y: 68 }, { x: 80, y: 54 }, { x: 70, y: 40 },
+      { x: 56, y: 54 }, { x: 42, y: 68 }, { x: 32, y: 54 }
+    ]);
+
+    // Less-or-equal '≤'
+    this.addTemplate('sym_leq', '≤', [
+      { x: 68, y: 28 }, { x: 34, y: 50 }, { x: 68, y: 72 },
+      { x: 34, y: 86 }, { x: 68, y: 86 }
+    ]);
+
+    // Greater-or-equal '≥'
+    this.addTemplate('sym_geq', '≥', [
+      { x: 32, y: 28 }, { x: 66, y: 50 }, { x: 32, y: 72 },
+      { x: 32, y: 86 }, { x: 66, y: 86 }
+    ]);
+
+    // Not-equal '≠'
+    this.addTemplate('sym_neq', '≠', [
+      { x: 38, y: 12 }, { x: 38, y: 88 },
+      { x: 62, y: 12 }, { x: 62, y: 88 },
+      { x: 26, y: 72 }, { x: 74, y: 28 }
+    ]);
+
+    // Right arrow '→'
+    this.addTemplate('sym_arrow', '→', [
+      { x: 18, y: 50 }, { x: 80, y: 50 },
+      { x: 64, y: 36 }, { x: 80, y: 50 },
+      { x: 64, y: 64 }, { x: 80, y: 50 }
+    ]);
+
+    // Plus-minus '±'
+    this.addTemplate('sym_pm', '±', [
+      { x: 30, y: 32 }, { x: 70, y: 32 },
+      { x: 50, y: 14 }, { x: 50, y: 50 },
+      { x: 30, y: 70 }, { x: 70, y: 70 }
+    ]);
+
+    // NOTE: the division sign is matched structurally (see structuralSymbols)
+    // because point-cloud dots coincide with plus-sign bars.
+
     // --- ALPHABET: LOWERCASE (a to z) ---
 
     // Letter 'a'

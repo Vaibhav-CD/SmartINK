@@ -18,6 +18,8 @@ SmartInk unites the fluid pen feel of Apple Notes and GoodNotes, the real-time l
   - **Laser Pointer:** Vanishing high-energy photon trail.
   - **Living Ink Brush:** Fluid particle simulation responding to virtual gravity, surface tension, and interactive cursor repulsion/attraction.
   - **Geometric Shape Tools:** Lines, rectangles, ellipses, and arrows with real-time feedback.
+  - **Dual Eraser:** Whole-stroke erase plus boundary-precise pixel erase with a canvas toggle.
+  - **Extended Symbol Recognition:** ∫ Σ Δ θ ∞ ≤ ≥ ≠ → ± ÷ √ π beyond digits and operators, with structural ÷ detection that never confuses fractions.
   - **Undo / Redo History Stack:** With `Ctrl+Z` and `Ctrl+Y` keyboard shortcuts.
 
 ### 2. CalcInk: Living Handwriting Math Engine
@@ -43,6 +45,7 @@ SmartInk unites the fluid pen feel of Apple Notes and GoodNotes, the real-time l
 - **Meta Llama Integration:** Routes spatial crops and extracted symbols to Meta models (Llama 3.3 70B, Llama 3.2 Vision, etc.) via Groq, Together AI, OpenRouter, or local Ollama / vLLM endpoints.
 - **Step-by-step explanations, alternative methods, and active recall flashcards** rendered in KaTeX.
 - **Offline Fallback Engine:** Built-in offline mathematical and scientific reasoning engine ensures full functionality even without an external API key.
+- **Voice Ink Commands:** Say "write Taylor's theorem on screen" and the app inks it onto the canvas in handwriting, or "explain this" to hear step-by-step working. Speech input, canvas output — no separate chat box.
 
 ### 5. Multi-Page Notebook & Offline Persistence
 - **Notebook Page Drawer:** Add, duplicate, delete, and switch pages with live thumbnail previews.
@@ -58,6 +61,20 @@ SmartInk unites the fluid pen feel of Apple Notes and GoodNotes, the real-time l
 - **State & Storage:** Zustand, IndexedDB (`idb`), LocalStorage
 - **Document & Audio:** PDF.js, Web Speech API (Synthesis)
 - **Testing:** Vitest + React Testing Library (100% test pass rate)
+- **Neural inference:** ONNX Runtime Web (single-thread WASM) + Web Worker
+
+---
+
+## 🧠 Neural Model Attribution
+
+Handwritten digit recognition is refined by the MIT-licensed **MNIST-12 CNN**
+from the [ONNX Model Zoo](https://github.com/onnx/models/tree/main/validated/vision/classification/mnist)
+(trained on MNIST in CNTK, 1.1% top-1 error, 26 kB). The model file ships in
+`public/models/mnist-12.onnx` — see
+`public/models/ATTRIBUTION.md` for the full model card, preprocessing contract,
+and the geometric-fallback override rule. Inference runs 100% on-device: the
+geometric recognizer paints instantly, the model refines digits asynchronously
+off the main thread.
 
 ---
 
@@ -82,6 +99,15 @@ npm test
 ```bash
 npm run build
 ```
+
+### Offline (Airplane-Mode) Check
+```bash
+npm run build
+npm run preview
+```
+Open the printed URL once (registers the service worker), then disconnect
+from the network and reload — canvas, neural math refinement, and PDF parsing
+keep working from cache.
 
 ---
 

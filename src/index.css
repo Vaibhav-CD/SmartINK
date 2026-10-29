@@ -1,82 +1,126 @@
+@import "katex/dist/katex.min.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  :root {
-    --bg-dark: #080c14;
-    --card-dark: #0f172a;
-    --border-dark: #1e293b;
-    --accent: #06b6d4;
-  }
-
-  body {
-    background-color: #080c14;
-    color: #f1f5f9;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    user-select: none;
-    -webkit-user-select: none;
-    touch-action: none;
-    overflow: hidden;
-  }
+/* Universal SmartInk & SmartInk Design System */
+:root, html.dark {
+  --bg-canvas: #07090e;
+  --bg-surface: #0e121a;
+  --bg-surface-elevated: #131824;
+  --bg-subtle: #192030;
+  --border-subtle: rgba(163, 230, 53, 0.15);
+  --border-hover: rgba(163, 230, 53, 0.4);
+  --border-active: #a3e635;
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --text-faint: #64748b;
+  --smart-green: #a3e635;
+  --smart-emerald: #22c55e;
+  --dot-grid: rgba(34, 197, 94, 0.08);
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.6), 0 0 1px 1px rgba(163, 230, 53, 0.1);
+  --shadow-elevated: 0 20px 40px -10px rgba(0, 0, 0, 0.8), 0 0 20px rgba(34, 197, 94, 0.15);
 }
 
-/* Custom scrollbars for cyber glass theme */
+html.light {
+  --bg-canvas: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-surface-elevated: #ffffff;
+  --bg-subtle: #f1f5f9;
+  --border-subtle: rgba(15, 23, 42, 0.1);
+  --border-hover: rgba(16, 185, 129, 0.5);
+  --border-active: #059669;
+  --text-main: #0f172a;
+  --text-muted: #475569;
+  --text-faint: #94a3b8;
+  --smart-green: #059669;
+  --smart-emerald: #10b981;
+  --dot-grid: rgba(15, 23, 42, 0.14);
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.06), 0 0 1px 1px rgba(0, 0, 0, 0.06);
+  --shadow-elevated: 0 12px 32px -8px rgba(0, 0, 0, 0.1), 0 0 16px rgba(16, 185, 129, 0.08);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: var(--bg-canvas);
+  color: var(--text-main);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", Arial, sans-serif;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Deep Cybernetic Dot Grid (Adapts automatically to theme) */
+.canvas-grid {
+  background-size: 28px 28px;
+  background-image: radial-gradient(circle, var(--dot-grid) 1.2px, transparent 1.2px);
+  background-color: var(--bg-canvas);
+  transition: background-color 0.2s ease;
+}
+
+/* SmartInk Surface Cards */
+.surface-card {
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-card);
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+}
+
+.surface-card:hover {
+  border-color: var(--border-hover);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15), 0 0 12px rgba(163, 230, 53, 0.2);
+}
+
+/* Elevated Floating Navigation & Modals */
+.surface-elevated {
+  background-color: var(--bg-surface-elevated);
+  color: var(--text-main);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-elevated);
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+/* Frosted Glass Floating Panel */
+.insta-panel {
+  background-color: var(--bg-surface);
+  color: var(--text-main);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Galvanic Green Glow Filter */
+.smart-glow {
+  filter: drop-shadow(0 0 8px rgba(163, 230, 53, 0.6));
+}
+
+.smart-glow-lg {
+  filter: drop-shadow(0 0 16px rgba(163, 230, 53, 0.8));
+}
+
+/* Smooth custom scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.6);
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.4);
-  border-radius: 3px;
+  background: rgba(163, 230, 53, 0.2);
+  border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(6, 182, 212, 0.6);
+  background: rgba(163, 230, 53, 0.45);
 }
 
-.handwriting-font {
-  font-family: 'Caveat', cursive;
-}
 
-.glass-panel {
-  background: rgba(15, 23, 42, 0.82);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.5), 0 0 15px 0 rgba(6, 182, 212, 0.05);
-}
-
-.glass-panel-glow {
-  background: rgba(15, 23, 42, 0.85);
-  backdrop-filter: blur(20px);
-  border: 1px solid rgba(6, 182, 212, 0.25);
-  box-shadow: 0 12px 35px -5px rgba(0, 0, 0, 0.6), 0 0 25px 2px rgba(6, 182, 212, 0.15);
-}
-
-.glass-input {
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #f8fafc;
-  transition: all 0.2s ease;
-}
-.glass-input:focus {
-  outline: none;
-  border-color: #06b6d4;
-  box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.2);
-}
-
-/* Grid pattern background */
-.canvas-grid-dots {
-  background-image: radial-gradient(rgba(255, 255, 255, 0.12) 1.2px, transparent 1.2px);
-  background-size: 24px 24px;
-}
-
-.canvas-grid-lines {
-  background-size: 40px 40px;
-  background-image: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-}

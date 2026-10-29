@@ -1,111 +1,1378 @@
-import React, { useEffect, useState } from 'react';
-import { InfiniteCanvas } from './components/Canvas/InfiniteCanvas';
-import { TopNavigation } from './components/Toolbar/TopNavigation';
-import { MainFloatingToolbar } from './components/Toolbar/MainFloatingToolbar';
-import { PageDrawer } from './components/Toolbar/PageDrawer';
-import { CalcInkBar } from './components/CalcInk/CalcInkBar';
-import { DocumentCard } from './components/DocumentStudio/DocumentCard';
-import { DocumentReaderModal } from './components/DocumentStudio/DocumentReaderModal';
-import { LassoCopilotModal } from './components/Copilot/LassoCopilotModal';
-import { MetaSettingsModal } from './components/Copilot/MetaSettingsModal';
-import { useCanvasStore } from './store/canvasStore';
-import { useDocumentStore } from './store/documentStore';
+﻿import { useState, useEffect, useCallback } from 'react';
+import type { 
+  ToolMode, 
+  Point,
+  TheoremItem, 
+  DocumentItem, 
+  SocraticAnnotation, 
+  MetaModelConfig,
+  VoiceState,
+  WorkspaceState,
+  CanvasPage,
+  WorkspaceFolder,
+  Stroke
+} from './types';
+import { InfiniteCanvas, type FunctionPlotItem, type PhysicsSimItem } from './components/Canvas/InfiniteCanvas';
+import { type PhysicsSystemType } from './services/physics/livingInkPhysics';
+import { FloatingDock } from './components/FloatingDock';
+import { UnifiedTopBar } from './components/UnifiedTopBar';
+import { WorkspaceExplorer } from './components/WorkspaceExplorer';
+import { CommandPalette } from './components/CommandPalette';
+import { SmartInkHomePage } from './components/SmartInkHomePage';
+import { MetaAIService } from './services/metaAI';
+import { loadWorkspace, saveWorkspace, createDefaultWorkspace } from './services/workspaceStorage';
+import { OnDeviceStrokeRecognizer, type ProjectedEquation } from './services/calcInk/strokeRecognizer';
+import { MathParser } from './services/calcInk/mathParser';
+import { ConfirmationModal } from './components/ConfirmationModal';
+import { PdfService } from './services/pdf/pdfService';
+import { PdfReaderModal } from './components/PdfReaderModal';
 
-export const App: React.FC = () => {
-  const { initWorkspace, setTool } = useCanvasStore();
-  const { documents } = useDocumentStore();
+export function App() {
+  const [currentView, setCurrentView] = useState<'home' | 'canvas'>('home');
+  const [tool, setTool] = useState<ToolMode>('select');
+  const [penColor, setPenColor] = useState<string>('#a3e635');
+  const [strokeWidth, setStrokeWidth] = useState<number>(3.5);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
-  const [isPageDrawerOpen, setIsPageDrawerOpen] = useState(false);
-  const [isCalcInkOpen, setIsCalcInkOpen] = useState(false);
-  const [isMetaSettingsOpen, setIsMetaSettingsOpen] = useState(false);
-  const [lassoData, setLassoData] = useState<{
-    cropDataUrl: string;
-    bbox: { minX: number; minY: number; maxX: number; maxY: number };
-  } | null>(null);
+  // Undo / Redo History Stack (CalcInk PS Requirement)
+  const [undoStack, setUndoStack] = useState<Stroke[][]>([]);
+  const [redoStack, setRedoStack] = useState<Stroke[][]>([]);
 
-  // Initialize workspace persistence
+  // Interactive 2D Function Plots (CalcInk Creative Extension)
+  const [functionPlots, setFunctionPlots] = useState<FunctionPlotItem[]>([]);
+
+  // Living Ink 60 FPS Physics Simulations
+  const [physicsSimulations, setPhysicsSimulations] = useState<PhysicsSimItem[]>([]);
+
+  // PDF Reader & Text-to-Speech active modal document
+  const [activeReadingDoc, setActiveReadingDoc] = useState<DocumentItem | null>(null);
+  const [isUploadingPdf, setIsUploadingPdf] = useState(false);
+
+  // Split View (Dual Sheet Comparison Mode)
+  const [isSplitView, setIsSplitView] = useState(false);
+  const [secondaryPageId, setSecondaryPageId] = useState<string | null>(null);
+
+  // Dark & Light Mode state
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    const saved = localStorage.getItem('SmartInk_theme');
+    return (saved === 'light' || saved === 'dark') ? saved : 'dark';
+  });
+
+  // Apply theme class to <html> root
   useEffect(() => {
-    initWorkspace();
-  }, [initWorkspace]);
+    const root = document.documentElement;
+    if (theme === 'dark') {
+      root.classList.add('dark');
+      root.classList.remove('light');
+    } else {
+      root.classList.add('light');
+      root.classList.remove('dark');
+    }
+    localStorage.setItem('SmartInk_theme', theme);
+  }, [theme]);
 
-  // Global tool hotkeys
+  const toggleTheme = () => {
+    setTheme(prev => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      // Automatically adjust pen color for high-contrast visibility when switching themes
+      if (next === 'light' && (penColor === '#ffffff' || penColor === '#a3e635')) {
+        setPenColor('#059669'); // High-contrast rich emerald for light canvas
+      } else if (next === 'dark' && (penColor === '#0f172a' || penColor === '#059669')) {
+        setPenColor('#a3e635'); // Vibrant galvanic lime for dark canvas
+      }
+      return next;
+    });
+  };
+
+  // Workspace Multi-File & Folder State
+  const [workspace, setWorkspace] = useState<WorkspaceState>(() => loadWorkspace());
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  // Get current active page safely
+  const activePage: CanvasPage = 
+    workspace.pages.find((p) => p.id === workspace.activePageId) || 
+    workspace.pages[0] || 
+    createDefaultWorkspace().pages[0];
+
+  // Secondary page for split comparison mode
+  const secondaryPage: CanvasPage = 
+    workspace.pages.find((p) => p.id === secondaryPageId) || 
+    workspace.pages.find((p) => p.id !== activePage.id) || 
+    activePage;
+
+  // Meta Model API Configuration
+  const [metaConfig, setMetaConfig] = useState<MetaModelConfig>({
+    apiKey: '',
+    endpoint: 'https://api.meta.ai/v1',
+    reasoningModel: 'muse-wonder',
+    visionModel: 'muse-spark-1.3',
+    imageModel: 'muse-image',
+    transcribeModel: 'muse-voice-transcribe',
+    isLiveApi: false,
+  });
+
+  // Voice Co-pilot State
+  const [voiceState, setVoiceState] = useState<VoiceState>({
+    isListening: false,
+    transcript: '',
+    status: 'idle',
+  });
+  const [ttsEnabled, setTtsEnabled] = useState(true);
+
+  const metaAI = MetaAIService.getInstance();
+
+  // Save workspace state to localStorage on changes
+  useEffect(() => {
+    saveWorkspace(workspace);
+  }, [workspace]);
+
+  // Text-to-Speech Helper
+  const speakText = useCallback((text: string) => {
+    if (!ttsEnabled || !('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1.05;
+    utterance.pitch = 1.0;
+    window.speechSynthesis.speak(utterance);
+  }, [ttsEnabled]);
+
+  // Update active page content helper
+  const updateActivePage = useCallback((updater: (page: CanvasPage) => CanvasPage) => {
+    setWorkspace((prev) => {
+      const updatedPages = prev.pages.map((p) => {
+        if (p.id === prev.activePageId) {
+          return { ...updater(p), updatedAt: Date.now() };
+        }
+        return p;
+      });
+      return { ...prev, pages: updatedPages };
+    });
+  }, []);
+
+  // Undo / Redo Actions
+  const handleUndo = useCallback(() => {
+    setUndoStack((prev) => {
+      if (prev.length === 0) return prev;
+      const lastStrokes = prev[prev.length - 1];
+      setRedoStack((r) => [...r, activePage.strokes]);
+      updateActivePage((page) => ({ ...page, strokes: lastStrokes }));
+      return prev.slice(0, -1);
+    });
+  }, [activePage.strokes, updateActivePage]);
+
+  const handleRedo = useCallback(() => {
+    setRedoStack((prev) => {
+      if (prev.length === 0) return prev;
+      const nextStrokes = prev[prev.length - 1];
+      setUndoStack((u) => [...u, activePage.strokes]);
+      updateActivePage((page) => ({ ...page, strokes: nextStrokes }));
+      return prev.slice(0, -1);
+    });
+  }, [activePage.strokes, updateActivePage]);
+
+  // Stroke Deletion Helper
+  const handleDeleteStrokes = useCallback((strokeIds: string[]) => {
+    const idSet = new Set(strokeIds);
+    setUndoStack((prev) => [...prev, activePage.strokes]);
+    setRedoStack([]);
+    updateActivePage((page) => ({
+      ...page,
+      strokes: page.strokes.filter((s) => !idSet.has(s.id)),
+    }));
+  }, [activePage.strokes, updateActivePage]);
+
+  // Convert inline math projection to permanent theorem card
+  const handleConvertToTheoremCard = (eq: ProjectedEquation) => {
+    const latexExpr = `${eq.expressionText} = ${eq.evaluation.display}`;
+    const newTheorem: TheoremItem = {
+      id: `thm-calc-${Date.now()}`,
+      type: 'theorem',
+      title: `CalcInk: ${eq.expressionText}`,
+      statement: `Evaluated via CalcInk 100% on-device BODMAS engine: ${eq.expressionText} = ${eq.evaluation.display}`,
+      latex: latexExpr,
+      position: { x: eq.anchorPosition.x, y: eq.anchorPosition.y },
+      size: { width: 340, height: 240 },
+      proofs: [],
+    };
+    updateActivePage((page) => ({
+      ...page,
+      theorems: [...page.theorems, newTheorem],
+    }));
+    speakText(`Pinned calculated theorem: ${eq.evaluation.display}`);
+  };
+
+  // Add 2D Function Plot with Smart Cascading Grid Placement or append to existing frame
+  const handleAddPlot = (fnStr = 'sin(x)', position?: Point, targetPlotId?: string) => {
+    if (targetPlotId) {
+      setFunctionPlots((prev) =>
+        prev.map((p) => {
+          if (p.id === targetPlotId) {
+            const existing = p.func
+              .split(/[,;\n]+/)
+              .map((s) => s.trim())
+              .filter(Boolean);
+            if (!existing.includes(fnStr.trim())) {
+              return { ...p, func: `${p.func}, ${fnStr.trim()}` };
+            }
+          }
+          return p;
+        })
+      );
+      speakText(`Added ${fnStr} to graph frame`);
+      return;
+    }
+
+    const count = functionPlots.length;
+    const cascadePos = position || {
+      x: 340 + (count % 3) * 400,
+      y: 160 + Math.floor(count / 3) * 290,
+    };
+    const newPlot: FunctionPlotItem = {
+      id: `plot-${Date.now()}`,
+      func: fnStr,
+      position: cascadePos,
+    };
+    setFunctionPlots((prev) => [...prev, newPlot]);
+    speakText(`Rendered interactive 2D function curve plot for ${fnStr}`);
+  };
+
+  // Living Ink 60 FPS Physics Simulations
+  const handleAddPhysicsSimulation = (type: PhysicsSystemType = 'pendulum', position?: Point) => {
+    const pos = position || {
+      x: 340 + (physicsSimulations.length % 3) * 440,
+      y: 160 + Math.floor(physicsSimulations.length / 3) * 320,
+    };
+    const title =
+      type === 'pendulum'
+        ? 'Simple Pendulum'
+        : type === 'spring'
+        ? 'Spring-Mass Oscillator'
+        : type === 'orbit'
+        ? 'Gravitational Orbit'
+        : 'Projectile Kinematics';
+
+    setPhysicsSimulations((prev) => [
+      ...prev,
+      {
+        id: `sim-${Date.now()}`,
+        type,
+        title,
+        position: pos,
+      },
+    ]);
+    speakText(`Started 60 FPS living ${type} physics simulation.`);
+  };
+
+  const handleDeletePhysicsSimulation = (id: string) => {
+    setPhysicsSimulations((prev) => prev.filter((s) => s.id !== id));
+  };
+
+  const handleUpdatePhysicsSimulation = (sim: PhysicsSimItem) => {
+    setPhysicsSimulations((prev) => prev.map((s) => (s.id === sim.id ? sim : s)));
+  };
+
+  // Global Keyboard Shortcuts (Cmd+K, Cmd+Z, Cmd+Shift+Z, V, H, P, E)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      // Cmd+K / Ctrl+K for command palette
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen(prev => !prev);
         return;
       }
 
-      const key = e.key.toLowerCase();
-      if (key === 'v') setTool('select');
-      else if (key === 'p') setTool('pen');
-      else if (key === 'h') setTool('highlighter');
-      else if (key === 'e') setTool('eraser');
-      else if (key === 'l') setTool('living-ink');
-      else if (key === 'm') setIsCalcInkOpen(true);
-      else if (key === 'escape') {
-        setIsPageDrawerOpen(false);
-        setIsCalcInkOpen(false);
-        setIsMetaSettingsOpen(false);
-        setLassoData(null);
+      // Undo / Redo
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+        return;
       }
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || e.key === 'Y')) {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+
+      // If user is currently focused in an input or textarea, ignore single-letter tool keys
+      const activeTag = document.activeElement?.tagName;
+      if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
+
+      if (e.key === 'v' || e.key === 'V') setTool('select');
+      if (e.key === 'h' || e.key === 'H') setTool('pan');
+      if (e.key === 'p' || e.key === 'P') setTool('pen');
+      if (e.key === 'e' || e.key === 'E') setTool('eraser');
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [setTool]);
+  }, [handleUndo, handleRedo]);
+
+  // Workspace Management Actions
+  const handleSelectPage = (pageId: string) => {
+    setWorkspace((prev) => ({ ...prev, activePageId: pageId }));
+    const targetPage = workspace.pages.find((p) => p.id === pageId);
+    if (targetPage) {
+      speakText(`Loaded ${targetPage.name}`);
+    }
+  };
+
+  const handleCreateFolder = (name: string, parentId: string | null = null) => {
+    const newFolder: WorkspaceFolder = {
+      id: `folder-${Date.now()}`,
+      name,
+      parentId,
+      isOpen: true,
+      createdAt: Date.now(),
+    };
+    setWorkspace((prev) => ({
+      ...prev,
+      folders: [...prev.folders, newFolder],
+    }));
+  };
+
+  const handleCreatePage = (name: string, folderId: string | null = null) => {
+    const newPage: CanvasPage = {
+      id: `page-${Date.now()}`,
+      name,
+      folderId,
+      theorems: [],
+      proofs: [],
+      documents: [],
+      images: [],
+      socraticHints: [],
+      strokes: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    setWorkspace((prev) => ({
+      ...prev,
+      pages: [...prev.pages, newPage],
+      activePageId: newPage.id,
+    }));
+    speakText(`Created page ${name}`);
+  };
+
+  const handleDeleteFolder = (folderId: string) => {
+    setWorkspace((prev) => {
+      const remainingFolders = prev.folders.filter((f) => f.id !== folderId);
+      const remainingPages = prev.pages.map((p) => 
+        p.folderId === folderId ? { ...p, folderId: null } : p
+      );
+      return {
+        ...prev,
+        folders: remainingFolders,
+        pages: remainingPages,
+      };
+    });
+  };
+
+  // Data-Loss Prevention: Clear Page & Delete Page Confirmation Modals
+  const [isClearPageModalOpen, setIsClearPageModalOpen] = useState(false);
+  const [pageToDeleteId, setPageToDeleteId] = useState<string | null>(null);
+
+  const handleRequestClearInk = () => {
+    if (activePage.strokes.length === 0 && activePage.theorems.length === 0 && functionPlots.length === 0) {
+      return;
+    }
+    setIsClearPageModalOpen(true);
+  };
+
+  const handleConfirmClearPage = (options?: { clearEverything?: boolean }) => {
+    setUndoStack((prev) => [...prev, activePage.strokes]);
+    setRedoStack([]);
+
+    if (options?.clearEverything) {
+      updateActivePage((page) => ({
+        ...page,
+        strokes: [],
+        theorems: [],
+        images: [],
+      }));
+      setFunctionPlots([]);
+      setPhysicsSimulations([]);
+      speakText("Cleared entire page.");
+    } else {
+      updateActivePage((page) => ({
+        ...page,
+        strokes: [],
+      }));
+      speakText("Cleared canvas ink. Press Ctrl+Z to undo.");
+    }
+  };
+
+  const handleRequestDeletePage = (pageId: string) => {
+    setPageToDeleteId(pageId);
+  };
+
+  const handleConfirmDeletePage = () => {
+    if (!pageToDeleteId) return;
+    const targetPage = workspace.pages.find((p) => p.id === pageToDeleteId);
+    const pageName = targetPage?.name || 'Page';
+
+    setWorkspace((prev) => {
+      const remainingPages = prev.pages.filter((p) => p.id !== pageToDeleteId);
+      if (remainingPages.length === 0) {
+        return createDefaultWorkspace();
+      }
+      const newActiveId = prev.activePageId === pageToDeleteId ? remainingPages[0].id : prev.activePageId;
+      return {
+        ...prev,
+        pages: remainingPages,
+        activePageId: newActiveId,
+      };
+    });
+
+    setPageToDeleteId(null);
+    speakText(`Deleted ${pageName}.`);
+  };
+
+  const handleRenameFolder = (folderId: string, newName: string) => {
+    setWorkspace((prev) => ({
+      ...prev,
+      folders: prev.folders.map((f) => (f.id === folderId ? { ...f, name: newName } : f)),
+    }));
+  };
+
+  const handleRenamePage = (pageId: string, newName: string) => {
+    setWorkspace((prev) => ({
+      ...prev,
+      pages: prev.pages.map((p) => (p.id === pageId ? { ...p, name: newName } : p)),
+    }));
+  };
+
+  const handleExportWorkspace = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(workspace, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `SmartInk-workspace-${new Date().toISOString().slice(0, 10)}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
+  const handleImportWorkspace = (jsonString: string) => {
+    try {
+      const parsed = JSON.parse(jsonString);
+      if (parsed.pages && parsed.folders) {
+        setWorkspace(parsed);
+        speakText("Workspace successfully restored.");
+      }
+    } catch {
+      alert("Invalid workspace format.");
+    }
+  };
+
+  // Discover Proofs for a Theorem
+  const handleDiscoverProofs = async (theorem?: TheoremItem) => {
+    const target = theorem || activePage.theorems[0];
+    if (!target) return;
+
+    const data = await metaAI.discoverProofs(target.title || target.statement, metaConfig.apiKey);
+    
+    const newProofs = data.proofs.map((p, idx) => ({
+      ...p,
+      theoremId: target.id,
+      position: {
+        x: target.position.x + target.size.width + 90,
+        y: target.position.y - 30 + idx * 240,
+      },
+    }));
+
+    updateActivePage((page) => ({
+      ...page,
+      theorems: page.theorems.map((t) => (t.id === target.id ? { ...t, proofs: newProofs } : t)),
+      proofs: [...page.proofs.filter((p) => p.theoremId !== target.id), ...newProofs],
+    }));
+
+    speakText(`Meta Muse Wonder synthesized ${newProofs.length} proof paths.`);
+  };
+
+  // Request Socratic Hint
+  const handleRequestSocraticHint = (theorem: TheoremItem) => {
+    const hint = metaAI.generateSocraticHint(theorem.title);
+    hint.position = {
+      x: theorem.position.x,
+      y: theorem.position.y + theorem.size.height + 25,
+    };
+    updateActivePage((page) => ({
+      ...page,
+      socraticHints: [...page.socraticHints, hint],
+    }));
+    speakText(hint.question);
+  };
+
+  // Synthesize Document
+  const handleSynthesizeDocument = (doc: DocumentItem) => {
+    const hint: SocraticAnnotation = {
+      id: `synth-${Date.now()}`,
+      targetId: doc.id,
+      position: { x: doc.position.x + doc.size.width + 30, y: doc.position.y },
+      question: `Synthesizing ${doc.title}: What core lemmas link with your active canvas proofs?`,
+      hint: "Cross-referencing element definitions with the algebraic expansion card.",
+    };
+    updateActivePage((page) => ({
+      ...page,
+      socraticHints: [...page.socraticHints, hint],
+    }));
+    speakText("Synthesizing document context across all pinned canvas nodes with Muse Wonder.");
+  };
+
+  // Recognize handwritten ink using On-Device CalcInk Recognizer + SAM 3.1
+  const handleRecognizeInk = async () => {
+    if (activePage.strokes.length === 0) return;
+
+    // 1. Check On-Device CalcInk Equation Recognizer first (e.g. 2x + 5 = 1, 6+6 = 12, y = x^2)
+    const scanned = OnDeviceStrokeRecognizer.scanEquations(activePage.strokes);
+    if (scanned.length > 0) {
+      scanned.forEach(eq => handleConvertToTheoremCard(eq));
+      speakText(`Pinned ${scanned.length} recognized equation${scanned.length > 1 ? 's' : ''} to permanent card${scanned.length > 1 ? 's' : ''}.`);
+      return;
+    }
+
+    // 2. Direct stroke cluster fallback
+    const clusterParsed = OnDeviceStrokeRecognizer.parseClusterToExpression(activePage.strokes);
+    if (clusterParsed.expressionStr.trim()) {
+      const evalRes = MathParser.evaluate(clusterParsed.expressionStr);
+      let minX = Infinity, minY = Infinity;
+      activePage.strokes.forEach(s => s.points.forEach(p => {
+        if (p.x < minX) minX = p.x;
+        if (p.y < minY) minY = p.y;
+      }));
+
+      const newTheorem: TheoremItem = {
+        id: `thm-ink-${Date.now()}`,
+        type: 'theorem',
+        title: evalRes.isEquationSolution ? `Solution: ${evalRes.display}` : clusterParsed.expressionStr,
+        statement: evalRes.display ? `${clusterParsed.expressionStr} \\implies ${evalRes.display}` : clusterParsed.expressionStr,
+        latex: clusterParsed.expressionStr,
+        position: { x: Math.max(50, minX - 20), y: Math.max(70, minY - 20) },
+        size: { width: 340, height: 260 },
+        proofs: [],
+      };
+
+      updateActivePage((page) => ({
+        ...page,
+        theorems: [...page.theorems, newTheorem],
+      }));
+      speakText(`Recognized ${clusterParsed.expressionStr}.`);
+      return;
+    }
+
+    // 3. Fallback to SAM 3.1 + Muse Spark Vision
+    const totalPoints = activePage.strokes.reduce((acc, s) => acc + s.points.length, 0);
+    const parsed = await metaAI.parseInkToMath(activePage.strokes.length, totalPoints);
+
+    let minX = Infinity, minY = Infinity;
+    activePage.strokes.forEach(s => s.points.forEach(p => {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+    }));
+
+    const newTheorem: TheoremItem = {
+      id: `thm-ink-${Date.now()}`,
+      type: 'theorem',
+      title: parsed.name,
+      statement: "Identified from handwritten digital ink via SAM 3.1 and Muse Spark Vision.",
+      latex: parsed.latex,
+      position: { x: Math.max(50, minX - 20), y: Math.max(70, minY - 20) },
+      size: { width: 340, height: 260 },
+      proofs: [],
+    };
+
+    updateActivePage((page) => ({
+      ...page,
+      theorems: [...page.theorems, newTheorem],
+    }));
+
+    speakText(`Recognized handwritten equation: ${parsed.name}.`);
+    handleDiscoverProofs(newTheorem);
+  };
+
+  // Voice command execution
+  const handleExecuteVoiceCommand = async (command: string) => {
+    setVoiceState((prev) => ({
+      ...prev,
+      transcript: command,
+      status: 'processing',
+    }));
+
+    const parsed = metaAI.parseVoiceIntent(command);
+
+    if (parsed.intent === 'discover_proofs') {
+      const target = activePage.theorems[0];
+      if (target) {
+        await handleDiscoverProofs(target);
+      }
+    } else if (parsed.intent === 'socratic_hint') {
+      const target = activePage.theorems[0];
+      if (target) {
+        handleRequestSocraticHint(target);
+      }
+    } else if (parsed.intent === 'generate_image') {
+      const generated = await metaAI.generateOrFetchImage(command, { x: 280, y: 160 });
+      updateActivePage((page) => ({
+        ...page,
+        images: [...(page.images || []), generated],
+      }));
+      speakText(`Rendered high-resolution multimodal asset for ${generated.title}.`);
+    } else if (parsed.intent === 'explain_step') {
+      speakText("Notice that both sides describe the exact same total area, allowing direct term cancellation.");
+    } else if (parsed.intent === 'add_paper') {
+      handleAddPaper();
+    } else if (parsed.intent === 'general_knowledge') {
+      const gk = await metaAI.answerGeneralQuestion(command);
+      const newCard: TheoremItem = {
+        id: `gk-${Date.now()}`,
+        type: 'theorem',
+        title: gk.title,
+        statement: gk.answer,
+        latex: `\\text{${gk.title}}`,
+        position: { x: 320, y: 160 },
+        size: { width: 400, height: 260 },
+        proofs: [],
+      };
+      updateActivePage((page) => ({
+        ...page,
+        theorems: [...page.theorems, newCard],
+      }));
+      speakText(gk.spokenSummary);
+    } else if (parsed.intent === 'living_physics') {
+      const lower = command.toLowerCase();
+      const simType = lower.includes('spring')
+        ? 'spring'
+        : lower.includes('orbit') || lower.includes('planet')
+        ? 'orbit'
+        : lower.includes('projectile') || lower.includes('launch')
+        ? 'projectile'
+        : 'pendulum';
+      handleAddPhysicsSimulation(simType);
+    }
+
+    setTimeout(() => {
+      setVoiceState((prev) => ({ ...prev, status: 'idle' }));
+    }, 1500);
+  };
+
+  // Web Speech API mic toggle
+  const handleToggleVoiceListen = () => {
+    if (voiceState.isListening) {
+      setVoiceState((prev) => ({ ...prev, isListening: false, status: 'idle' }));
+      return;
+    }
+
+    setVoiceState((prev) => ({ ...prev, isListening: true, status: 'listening' }));
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        handleExecuteVoiceCommand(transcript);
+        setVoiceState((prev) => ({ ...prev, isListening: false }));
+      };
+
+      recognition.onerror = () => {
+        setVoiceState((prev) => ({ ...prev, isListening: false, status: 'idle' }));
+      };
+
+      recognition.onend = () => {
+        setVoiceState((prev) => ({ ...prev, isListening: false, status: 'idle' }));
+      };
+
+      recognition.start();
+    } else {
+      setTimeout(() => {
+        handleExecuteVoiceCommand("Show me 3 proofs for the Pythagorean Theorem");
+        setVoiceState((prev) => ({ ...prev, isListening: false }));
+      }, 2500);
+    }
+  };
+
+  // Add a blank theorem stamp
+  const handleAddTheorem = () => {
+    const newTheorem: TheoremItem = {
+      id: `thm-${Date.now()}`,
+      type: 'theorem',
+      title: "Custom Hypothesis",
+      statement: "Define mathematical conjecture to analyze with Muse Wonder.",
+      latex: "f(x) = \\int_{-\\infty}^\\infty e^{-t^2} dt",
+      position: { x: 300, y: 180 },
+      size: { width: 340, height: 260 },
+      proofs: [],
+    };
+    updateActivePage((page) => ({
+      ...page,
+      theorems: [...page.theorems, newTheorem],
+    }));
+  };
+
+  // Add blank paper
+  const handleAddPaper = () => {
+    const newDoc: DocumentItem = {
+      id: `doc-${Date.now()}`,
+      type: 'paper',
+      title: "Quantum Superposition & Phase Invariance",
+      authors: "N. Bohr, W. Heisenberg (1927)",
+      abstract: "An exploration of state vectors and wave-packet reductions across spatial configurations.",
+      pages: [
+        "In quantum mechanics, state vectors psi occupy a complex Hilbert space. Linear combinations of eigenvectors represent simultaneous valid physical configurations prior to measurement.",
+        "The density operator rho satisfies the von Neumann equation: i*hbar d(rho)/dt = [H, rho]."
+      ],
+      currentPage: 0,
+      position: { x: 80, y: 160 },
+      size: { width: 340, height: 360 },
+    };
+    updateActivePage((page) => ({
+      ...page,
+      documents: [...page.documents, newDoc],
+    }));
+  };
+
+  // Upload and parse real PDF document for reading and Text-to-Speech
+  const handleUploadPdf = async (file: File, position?: Point) => {
+    setIsUploadingPdf(true);
+    try {
+      const parsed = await PdfService.parsePdfFile(file);
+      const newDoc: DocumentItem = {
+        id: `pdf-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        type: 'pdf',
+        title: parsed.title || file.name,
+        authors: parsed.author || 'Uploaded PDF Document',
+        abstract: parsed.abstract,
+        pages: parsed.pages,
+        currentPage: 0,
+        position: position || { x: 140, y: 160 },
+        size: { width: 380, height: 400 },
+        fileName: file.name,
+        fileSize: file.size,
+        totalWords: parsed.totalWords,
+        uploadedAt: Date.now(),
+      };
+      updateActivePage((page) => ({
+        ...page,
+        documents: [...page.documents, newDoc],
+      }));
+    } catch (err) {
+      console.error('Failed to parse uploaded PDF:', err);
+    } finally {
+      setIsUploadingPdf(false);
+    }
+  };
+
+  // Add blank Socratic sticky
+  const handleAddSticky = () => {
+    const newHint: SocraticAnnotation = {
+      id: `hint-${Date.now()}`,
+      targetId: 'custom',
+      position: { x: 380, y: 350 },
+      question: "What implicit assumption is made when dividing by (p - 1)?",
+      hint: "Remember to verify whether p is guaranteed to be strictly greater than 1 and coprime.",
+    };
+    updateActivePage((page) => ({
+      ...page,
+      socraticHints: [...page.socraticHints, newHint],
+    }));
+  };
+
+  // Add high-resolution Multimodal Asset (Galaxy, Nebula, Quantum Diagram)
+  const handleAddImage = async (queryPrompt?: string) => {
+    const defaultQuery = queryPrompt || "James Webb Space Telescope deep galaxy cluster cosmic gravitational lensing";
+    const newImage = await metaAI.generateOrFetchImage(defaultQuery, { x: 300, y: 160 });
+    updateActivePage((page) => ({
+      ...page,
+      images: [...(page.images || []), newImage],
+    }));
+    speakText(`Spawned multimodal asset: ${newImage.title}`);
+  };
+
+  // Preset Scenario switcher
+  const handleLoadPresetScenario = (presetName: string) => {
+    if (presetName === 'pythagorean') {
+      const match = workspace.pages.find(p => p.id === 'page-pythagorean');
+      if (match) handleSelectPage(match.id);
+    } else if (presetName === 'primes') {
+      const match = workspace.pages.find(p => p.id === 'page-primes');
+      if (match) handleSelectPage(match.id);
+    } else if (presetName === 'euler') {
+      const match = workspace.pages.find(p => p.id === 'page-euler');
+      if (match) handleSelectPage(match.id);
+    }
+    setCurrentView('canvas');
+  };
+
+  const handleEnterCanvasFromHome = async (query?: string) => {
+    if (query) {
+      const isImageRequest = /(image|photo|picture|galaxy|space|nebula|black hole|telescope|cosmos|diagram|visual|art)/i.test(query);
+      if (isImageRequest) {
+        const newImage = await metaAI.generateOrFetchImage(query, { x: 280, y: 150 });
+        updateActivePage((page) => ({
+          ...page,
+          images: [...(page.images || []), newImage],
+        }));
+        speakText(`Generated visual asset for ${newImage.title}.`);
+      } else {
+        const newTheorem: TheoremItem = {
+          id: `thm-${Date.now()}`,
+          type: 'theorem',
+          title: query.length > 32 ? query.slice(0, 32) + '...' : query,
+          statement: `Query: ${query}`,
+          latex: "\\mathcal{Q}: \\quad " + query,
+          position: { x: 340, y: 180 },
+          size: { width: 340, height: 260 },
+          proofs: [],
+        };
+        updateActivePage((page) => ({
+          ...page,
+          theorems: [...page.theorems, newTheorem],
+        }));
+        handleDiscoverProofs(newTheorem);
+      }
+    }
+    setCurrentView('canvas');
+  };
+
+  // If on Home Portal, render the futuristic Ben 10 / SmartInk Portal!
+  if (currentView === 'home') {
+    return (
+      <SmartInkHomePage
+        onEnterCanvas={handleEnterCanvasFromHome}
+        onLoadPreset={handleLoadPresetScenario}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onStartVoice={handleToggleVoiceListen}
+      />
+    );
+  }
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-[#080c14] font-sans">
-      {/* Top Navigation */}
-      <TopNavigation
-        onTogglePageDrawer={() => setIsPageDrawerOpen(!isPageDrawerOpen)}
-        onOpenMetaSettings={() => setIsMetaSettingsOpen(true)}
+    <div className="relative w-screen h-screen overflow-hidden pt-13 bg-slate-50 dark:bg-[#07090e] transition-colors">
+      {/* Unified Command & Navigation Header */}
+      <UnifiedTopBar
+        onNavigateHome={() => setCurrentView('home')}
+        isSidebarOpen={isSidebarOpen}
+        onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+        activePageName={activePage.name}
+        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+        onLoadPreset={handleLoadPresetScenario}
+        isListening={voiceState.isListening}
+        voiceTranscript={voiceState.transcript}
+        onToggleVoice={handleToggleVoiceListen}
+        ttsEnabled={ttsEnabled}
+        onToggleTTS={() => setTtsEnabled(!ttsEnabled)}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        config={metaConfig}
+        onUpdateConfig={setMetaConfig}
+        isSplitView={isSplitView}
+        onToggleSplitView={() => setIsSplitView(prev => !prev)}
       />
 
-      {/* Infinite Spatial Canvas Engine */}
-      <InfiniteCanvas
-        onLassoComplete={(cropDataUrl, bbox) => {
-          setLassoData({ cropDataUrl, bbox });
-        }}
+      {/* Uploading PDF Progress Pill */}
+      {isUploadingPdf && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-950/90 border border-cyan-400 text-cyan-300 text-xs font-semibold shadow-2xl backdrop-blur-xl animate-in fade-in">
+          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+          <span>Parsing PDF Document & Extracting Content...</span>
+        </div>
+      )}
+
+      {/* Global Command Palette (⌘K) */}
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        pages={workspace.pages}
+        onSelectPage={handleSelectPage}
+        onAddTheorem={handleAddTheorem}
+        onAddPaper={handleAddPaper}
+        onUploadPdf={handleUploadPdf}
+        onAddSticky={handleAddSticky}
+        onAddImage={handleAddImage}
+        onDiscoverProofs={() => handleDiscoverProofs()}
+        onToggleTheme={toggleTheme}
+        theme={theme}
       />
 
-      {/* Floating Document Cards */}
-      {documents.map((doc) => (
-        <DocumentCard key={doc.id} document={doc} />
-      ))}
-
-      {/* Main Floating Tool Palette */}
-      <MainFloatingToolbar onOpenMathBar={() => setIsCalcInkOpen(true)} />
-
-      {/* Page Drawer */}
-      <PageDrawer
-        isOpen={isPageDrawerOpen}
-        onClose={() => setIsPageDrawerOpen(false)}
+      {/* Workspace Files & Folders Drawer (Left) */}
+      <WorkspaceExplorer
+        isOpen={isSidebarOpen}
+        onToggleOpen={() => setIsSidebarOpen(!isSidebarOpen)}
+        folders={workspace.folders}
+        pages={workspace.pages}
+        activePageId={workspace.activePageId}
+        onSelectPage={handleSelectPage}
+        onCreateFolder={handleCreateFolder}
+        onCreatePage={handleCreatePage}
+        onDeleteFolder={handleDeleteFolder}
+        onDeletePage={handleRequestDeletePage}
+        onRenameFolder={handleRenameFolder}
+        onRenamePage={handleRenamePage}
+        onExportWorkspace={handleExportWorkspace}
+        onImportWorkspace={handleImportWorkspace}
+        onUploadPdf={handleUploadPdf}
+        onOpenPdfReader={(doc) => setActiveReadingDoc(doc)}
       />
 
-      {/* CalcInk Living Math Bar */}
-      <CalcInkBar
-        isOpen={isCalcInkOpen}
-        onClose={() => setIsCalcInkOpen(false)}
+      {/* Infinite Canvas - Single or Split Comparison View */}
+      {isSplitView ? (
+        <div className="w-full h-[calc(100vh-3.25rem)] flex flex-row divide-x divide-lime-500/20">
+          {/* Left Sheet Canvas */}
+          <div className="relative w-1/2 h-full overflow-hidden">
+            <div className="absolute top-3 left-4 z-30 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950/80 border border-lime-500/40 text-lime-400 text-xs font-semibold backdrop-blur-md shadow-lg shadow-black/40">
+              <span className="w-2 h-2 rounded-full bg-lime-400 animate-pulse" />
+              <span>Left Sheet: {activePage.name}</span>
+            </div>
+            <InfiniteCanvas
+              key={`left-${activePage.id}`}
+              tool={tool}
+              penColor={penColor}
+              strokeWidth={strokeWidth}
+              theorems={activePage.theorems}
+              proofs={activePage.proofs}
+              documents={activePage.documents}
+              images={activePage.images || []}
+              plots={functionPlots}
+              simulations={physicsSimulations}
+              onAddSimulation={handleAddPhysicsSimulation}
+              onDeleteSimulation={handleDeletePhysicsSimulation}
+              onUpdateSimulation={handleUpdatePhysicsSimulation}
+              socraticHints={activePage.socraticHints}
+              strokes={activePage.strokes}
+              onAddStroke={(s) => {
+                setUndoStack((prev) => [...prev, activePage.strokes]);
+                setRedoStack([]);
+                updateActivePage((page) => ({ ...page, strokes: [...page.strokes, s] }));
+              }}
+              onDeleteStrokes={handleDeleteStrokes}
+              onUpdatePlot={(pl) => setFunctionPlots(prev => prev.map(p => p.id === pl.id ? pl : p))}
+              onDeletePlot={(id) => setFunctionPlots(prev => prev.filter(p => p.id !== id))}
+              onConvertToTheoremCard={handleConvertToTheoremCard}
+              onUpdateTheorem={(updated) =>
+                updateActivePage((page) => ({
+                  ...page,
+                  theorems: page.theorems.map((t) => (t.id === updated.id ? updated : t)),
+                }))
+              }
+              onUpdateProofNode={(updated) =>
+                updateActivePage((page) => ({
+                  ...page,
+                  proofs: page.proofs.map((p) => (p.id === updated.id ? updated : p)),
+                }))
+              }
+              onUpdateDocument={(updated) =>
+                updateActivePage((page) => ({
+                  ...page,
+                  documents: page.documents.map((d) => (d.id === updated.id ? updated : d)),
+                }))
+              }
+              onUpdateImage={(updated) =>
+                updateActivePage((page) => ({
+                  ...page,
+                  images: (page.images || []).map((img) => (img.id === updated.id ? updated : img)),
+                }))
+              }
+              onUpdateSocraticHint={(updated) =>
+                updateActivePage((page) => ({
+                  ...page,
+                  socraticHints: page.socraticHints.map((h) => (h.id === updated.id ? updated : h)),
+                }))
+              }
+              onDeleteTheorem={(id) =>
+                updateActivePage((page) => ({
+                  ...page,
+                  theorems: page.theorems.filter((t) => t.id !== id),
+                  proofs: page.proofs.filter((p) => p.theoremId !== id),
+                }))
+              }
+              onDeleteProof={(id) =>
+                updateActivePage((page) => ({
+                  ...page,
+                  proofs: page.proofs.filter((p) => p.id !== id),
+                }))
+              }
+              onDeleteDocument={(id) =>
+                updateActivePage((page) => ({
+                  ...page,
+                  documents: page.documents.filter((d) => d.id !== id),
+                }))
+              }
+              onDeleteImage={(id) =>
+                updateActivePage((page) => ({
+                  ...page,
+                  images: (page.images || []).filter((img) => img.id !== id),
+                }))
+              }
+              onDeleteSocraticHint={(id) =>
+                updateActivePage((page) => ({
+                  ...page,
+                  socraticHints: page.socraticHints.filter((h) => h.id !== id),
+                }))
+              }
+              onDiscoverProofs={handleDiscoverProofs}
+              onRequestSocraticHint={handleRequestSocraticHint}
+              onSynthesizeDocument={handleSynthesizeDocument}
+              onUploadPdf={handleUploadPdf}
+              onSelectTool={setTool}
+              onTriggerVoice={handleToggleVoiceListen}
+              onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+              onLoadPresetScenario={handleLoadPresetScenario}
+              onAddPlot={handleAddPlot}
+            />
+          </div>
+
+          {/* Right Sheet Canvas */}
+          <div className="relative w-1/2 h-full overflow-hidden">
+            <div className="absolute top-3 left-4 z-30 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950/80 border border-emerald-500/40 text-emerald-400 text-xs font-semibold backdrop-blur-md shadow-lg shadow-black/40">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Right Sheet:</span>
+              <select
+                value={secondaryPage.id}
+                onChange={(e) => setSecondaryPageId(e.target.value)}
+                className="bg-slate-900 text-emerald-300 font-semibold text-xs border border-emerald-500/30 rounded px-1.5 py-0.5 outline-none cursor-pointer"
+              >
+                {workspace.pages.map((p) => (
+                  <option key={p.id} value={p.id} className="bg-slate-900 text-slate-100">
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <InfiniteCanvas
+              key={`right-${secondaryPage.id}`}
+              tool={tool}
+              penColor={penColor}
+              strokeWidth={strokeWidth}
+              theorems={secondaryPage.theorems}
+              proofs={secondaryPage.proofs}
+              documents={secondaryPage.documents}
+              images={secondaryPage.images || []}
+              plots={functionPlots}
+              simulations={physicsSimulations}
+              onAddSimulation={handleAddPhysicsSimulation}
+              onDeleteSimulation={handleDeletePhysicsSimulation}
+              onUpdateSimulation={handleUpdatePhysicsSimulation}
+              socraticHints={secondaryPage.socraticHints}
+              strokes={secondaryPage.strokes}
+              onAddStroke={(s) =>
+                setWorkspace((prev) => ({
+                  ...prev,
+                  pages: prev.pages.map((p) =>
+                    p.id === secondaryPage.id ? { ...p, strokes: [...p.strokes, s] } : p
+                  ),
+                }))
+              }
+              onDeleteStrokes={(ids) => {
+                const idSet = new Set(ids);
+                setWorkspace((prev) => ({
+                  ...prev,
+                  pages: prev.pages.map((p) =>
+                    p.id === secondaryPage.id
+                      ? { ...p, strokes: p.strokes.filter((s) => !idSet.has(s.id)) }
+                      : p
+                  ),
+                }));
+              }}
+              onUpdatePlot={(pl) => setFunctionPlots(prev => prev.map(p => p.id === pl.id ? pl : p))}
+              onDeletePlot={(id) => setFunctionPlots(prev => prev.filter(p => p.id !== id))}
+              onConvertToTheoremCard={handleConvertToTheoremCard}
+              onUpdateTheorem={(updated) =>
+                setWorkspace((prev) => ({
+                  ...prev,
+                  pages: prev.pages.map((p) =>
+                    p.id === secondaryPage.id
+                      ? { ...p, theorems: p.theorems.map((t) => (t.id === updated.id ? updated : t)) }
+                      : p
+                  ),
+                }))
+              }
+              onUpdateProofNode={(updated) =>
+                setWorkspace((prev) => ({
+                  ...prev,
+                  pages: prev.pages.map((p) =>
+                    p.id === secondaryPage.id
+                      ? { ...p, proofs: p.proofs.map((pr) => (pr.id === updated.id ? updated : pr)) }
+                      : p
+                  ),
+                }))
+              }
+              onUpdateDocument={(updated) =>
+                setWorkspace((prev) => ({
+                  ...prev,
+                  pages: prev.pages.map((p) =>
+                    p.id === secondaryPage.id
+                      ? { ...p, documents: p.documents.map((d) => (d.id === updated.id ? updated : d)) }
+                      : p
+                  ),
+                }))
+              }
+              onUpdateImage={(updated) =>
+                setWorkspace((prev) => ({
+                  ...prev,
+                  pages: prev.pages.map((p) =>
+                    p.id === secondaryPage.id
+                      ? { ...p, images: (p.images || []).map((img) => (img.id === updated.id ? updated : img)) }
+                      : p
+                  ),
+                }))
+              }
+              onUpdateSocraticHint={(updated) =>
+                setWorkspace((prev) => ({
+                  ...prev,
+                  pages: prev.pages.map((p) =>
+                    p.id === secondaryPage.id
+                      ? { ...p, socraticHints: p.socraticHints.map((h) => (h.id === updated.id ? updated : h)) }
+                      : p
+                  ),
+                }))
+              }
+              onDeleteTheorem={(id) =>
+                setWorkspace((prev) => ({
+                  ...prev,
+                  pages: prev.pages.map((p) =>
+                    p.id === secondaryPage.id
+                      ? {
+                          ...p,
+                          theorems: p.theorems.filter((t) => t.id !== id),
+                          proofs: p.proofs.filter((pr) => pr.theoremId !== id),
+                        }
+                      : p
+                  ),
+                }))
+              }
+              onDeleteProof={(id) =>
+                setWorkspace((prev) => ({
+                  ...prev,
+                  pages: prev.pages.map((p) =>
+                    p.id === secondaryPage.id
+                      ? { ...p, proofs: p.proofs.filter((pr) => pr.id !== id) }
+                      : p
+                  ),
+                }))
+              }
+              onDeleteDocument={(id) =>
+                setWorkspace((prev) => ({
+                  ...prev,
+                  pages: prev.pages.map((p) =>
+                    p.id === secondaryPage.id
+                      ? { ...p, documents: p.documents.filter((d) => d.id !== id) }
+                      : p
+                  ),
+                }))
+              }
+              onDeleteImage={(id) =>
+                setWorkspace((prev) => ({
+                  ...prev,
+                  pages: prev.pages.map((p) =>
+                    p.id === secondaryPage.id
+                      ? { ...p, images: (p.images || []).filter((img) => img.id !== id) }
+                      : p
+                  ),
+                }))
+              }
+              onDeleteSocraticHint={(id) =>
+                setWorkspace((prev) => ({
+                  ...prev,
+                  pages: prev.pages.map((p) =>
+                    p.id === secondaryPage.id
+                      ? { ...p, socraticHints: p.socraticHints.filter((h) => h.id !== id) }
+                      : p
+                  ),
+                }))
+              }
+              onDiscoverProofs={handleDiscoverProofs}
+              onRequestSocraticHint={handleRequestSocraticHint}
+              onSynthesizeDocument={handleSynthesizeDocument}
+              onUploadPdf={handleUploadPdf}
+              onSelectTool={setTool}
+              onTriggerVoice={handleToggleVoiceListen}
+              onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+              onLoadPresetScenario={handleLoadPresetScenario}
+              onAddPlot={handleAddPlot}
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="w-full h-[calc(100vh-3.25rem)] relative overflow-hidden">
+          <InfiniteCanvas
+            key={activePage.id}
+            tool={tool}
+            penColor={penColor}
+            strokeWidth={strokeWidth}
+            theorems={activePage.theorems}
+            proofs={activePage.proofs}
+            documents={activePage.documents}
+            images={activePage.images || []}
+            plots={functionPlots}
+            simulations={physicsSimulations}
+            onAddSimulation={handleAddPhysicsSimulation}
+            onDeleteSimulation={handleDeletePhysicsSimulation}
+            onUpdateSimulation={handleUpdatePhysicsSimulation}
+            socraticHints={activePage.socraticHints}
+            strokes={activePage.strokes}
+            onAddStroke={(s) => {
+              setUndoStack((prev) => [...prev, activePage.strokes]);
+              setRedoStack([]);
+              updateActivePage((page) => ({ ...page, strokes: [...page.strokes, s] }));
+            }}
+            onDeleteStrokes={handleDeleteStrokes}
+            onUpdatePlot={(pl) => setFunctionPlots(prev => prev.map(p => p.id === pl.id ? pl : p))}
+            onDeletePlot={(id) => setFunctionPlots(prev => prev.filter(p => p.id !== id))}
+            onConvertToTheoremCard={handleConvertToTheoremCard}
+            onUpdateTheorem={(updated) =>
+              updateActivePage((page) => ({
+                ...page,
+                theorems: page.theorems.map((t) => (t.id === updated.id ? updated : t)),
+              }))
+            }
+            onUpdateProofNode={(updated) =>
+              updateActivePage((page) => ({
+                ...page,
+                proofs: page.proofs.map((p) => (p.id === updated.id ? updated : p)),
+              }))
+            }
+            onUpdateDocument={(updated) =>
+              updateActivePage((page) => ({
+                ...page,
+                documents: page.documents.map((d) => (d.id === updated.id ? updated : d)),
+              }))
+            }
+            onUpdateImage={(updated) =>
+              updateActivePage((page) => ({
+                ...page,
+                images: (page.images || []).map((img) => (img.id === updated.id ? updated : img)),
+              }))
+            }
+            onUpdateSocraticHint={(updated) =>
+              updateActivePage((page) => ({
+                ...page,
+                socraticHints: page.socraticHints.map((h) => (h.id === updated.id ? updated : h)),
+              }))
+            }
+            onDeleteTheorem={(id) =>
+              updateActivePage((page) => ({
+                ...page,
+                theorems: page.theorems.filter((t) => t.id !== id),
+                proofs: page.proofs.filter((p) => p.theoremId !== id),
+              }))
+            }
+            onDeleteProof={(id) =>
+              updateActivePage((page) => ({
+                ...page,
+                proofs: page.proofs.filter((p) => p.id !== id),
+              }))
+            }
+            onDeleteDocument={(id) =>
+              updateActivePage((page) => ({
+                ...page,
+                documents: page.documents.filter((d) => d.id !== id),
+              }))
+            }
+            onDeleteImage={(id) =>
+              updateActivePage((page) => ({
+                ...page,
+                images: (page.images || []).filter((img) => img.id !== id),
+              }))
+            }
+            onDeleteSocraticHint={(id) =>
+              updateActivePage((page) => ({
+                ...page,
+                socraticHints: page.socraticHints.filter((h) => h.id !== id),
+              }))
+            }
+            onDiscoverProofs={handleDiscoverProofs}
+            onRequestSocraticHint={handleRequestSocraticHint}
+            onSynthesizeDocument={handleSynthesizeDocument}
+            onUploadPdf={handleUploadPdf}
+            onSelectTool={setTool}
+            onTriggerVoice={handleToggleVoiceListen}
+            onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+            onLoadPresetScenario={handleLoadPresetScenario}
+            onAddPlot={handleAddPlot}
+          />
+        </div>
+      )}
+
+      {/* Floating Bottom Ergonomic Dock */}
+      <FloatingDock
+        currentTool={tool}
+        onSelectTool={setTool}
+        penColor={penColor}
+        onChangePenColor={setPenColor}
+        strokeWidth={strokeWidth}
+        onChangeStrokeWidth={setStrokeWidth}
+        onAddTheorem={handleAddTheorem}
+        onAddPaper={handleAddPaper}
+        onUploadPdf={handleUploadPdf}
+        onAddSticky={handleAddSticky}
+        onAddImage={handleAddImage}
+        onAddPlot={() => handleAddPlot('sin(x)')}
+        plotCount={functionPlots.length}
+        onAddPhysics={() => handleAddPhysicsSimulation('pendulum')}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        canUndo={undoStack.length > 0}
+        canRedo={redoStack.length > 0}
+        onClearInk={handleRequestClearInk}
+        onRecognizeInk={handleRecognizeInk}
+        hasInkStrokes={activePage.strokes.length > 0}
       />
 
-      {/* Document Reader Studio Modal */}
-      <DocumentReaderModal />
-
-      {/* Lasso AI Copilot Modal */}
-      <LassoCopilotModal
-        isOpen={!!lassoData}
-        onClose={() => setLassoData(null)}
-        cropDataUrl={lassoData?.cropDataUrl}
+      {/* Clear Canvas / Page Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={isClearPageModalOpen}
+        onClose={() => setIsClearPageModalOpen(false)}
+        onConfirm={handleConfirmClearPage}
+        title="Clear Canvas Page?"
+        description="Are you sure you want to clear this canvas page? All your current digital ink drawings and handwriting will be removed."
+        confirmLabel="Clear Canvas Ink"
+        confirmVariant="warning"
+        strokeCount={activePage.strokes.length}
+        theoremCount={activePage.theorems.length}
+        plotCount={functionPlots.length}
+        showClearAllOption={true}
       />
 
-      {/* Meta AI Configuration Modal */}
-      <MetaSettingsModal
-        isOpen={isMetaSettingsOpen}
-        onClose={() => setIsMetaSettingsOpen(false)}
+      {/* Delete Page Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={!!pageToDeleteId}
+        onClose={() => setPageToDeleteId(null)}
+        onConfirm={handleConfirmDeletePage}
+        title="Delete Page?"
+        description={`Are you sure you want to permanently delete "${
+          workspace.pages.find((p) => p.id === pageToDeleteId)?.name || 'this page'
+        }"? All notes, theorems, calculations, and drawings on this page will be deleted.`}
+        confirmLabel="Delete Page"
+        confirmVariant="danger"
+        isPageDeletion={true}
+        strokeCount={workspace.pages.find((p) => p.id === pageToDeleteId)?.strokes.length || 0}
+        theoremCount={workspace.pages.find((p) => p.id === pageToDeleteId)?.theorems.length || 0}
       />
+
+      {/* PDF Full Reader & Text-to-Speech Distraction-Free Modal */}
+      {activeReadingDoc && (
+        <PdfReaderModal
+          document={activeReadingDoc}
+          isOpen={!!activeReadingDoc}
+          onClose={() => setActiveReadingDoc(null)}
+          onSynthesize={handleSynthesizeDocument}
+          onUpdateDocument={(updatedDoc) => {
+            setActiveReadingDoc(updatedDoc);
+            updateActivePage((page) => ({
+              ...page,
+              documents: page.documents.map((d) => (d.id === updatedDoc.id ? updatedDoc : d)),
+            }));
+          }}
+        />
+      )}
     </div>
   );
-};
+}
 
 export default App;
+

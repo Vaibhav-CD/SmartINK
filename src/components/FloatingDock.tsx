@@ -14,7 +14,8 @@ import {
   Redo2,
   Activity,
   Atom,
-  FileUp
+  FileUp,
+  FlaskConical
 } from 'lucide-react';
 
 interface FloatingDockProps {
@@ -32,6 +33,7 @@ interface FloatingDockProps {
   onAddPlot?: () => void;
   plotCount?: number;
   onAddPhysics?: () => void;
+  onOpenStudio?: () => void;
   onClearInk: () => void;
   onRecognizeInk: () => void;
   hasInkStrokes: boolean;
@@ -59,6 +61,7 @@ export const FloatingDock: React.FC<FloatingDockProps> = ({
   onAddPlot,
   plotCount,
   onAddPhysics,
+  onOpenStudio,
   onClearInk,
   onRecognizeInk,
   hasInkStrokes,
@@ -251,6 +254,17 @@ export const FloatingDock: React.FC<FloatingDockProps> = ({
           >
             <Atom className="w-4 h-4 text-emerald-600 dark:text-lime-400 animate-spin" style={{ animationDuration: '10s' }} />
             <span className="hidden md:inline">+ Physics</span>
+          </button>
+        )}
+
+        {onOpenStudio && (
+          <button
+            onClick={onOpenStudio}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-lime-400 text-xs font-semibold transition-all cursor-pointer"
+            title="Open Simulation Studio — describe a setup and tune its parameters"
+          >
+            <FlaskConical className="w-4 h-4 text-emerald-600 dark:text-lime-400" />
+            <span className="hidden md:inline">Studio</span>
           </button>
         )}
 

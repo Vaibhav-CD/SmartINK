@@ -1,7 +1,7 @@
 import type { Point, Stroke } from '../../types';
 import { getStrokesBoundingBox } from '../calcInk/coordinateTransform';
 
-export type PhysicsSystemType = 'pendulum' | 'spring' | 'orbit' | 'projectile';
+export type PhysicsSystemType = 'pendulum' | 'spring' | 'orbit' | 'projectile' | 'wave';
 
 export interface PhysicsParams {
   gravity: number; // m/s^2 (Earth = 9.80665)
@@ -13,6 +13,9 @@ export interface PhysicsParams {
   initialDisplacement?: number; // m
   initialVelocity?: { x: number; y: number };
   planetMass?: number;
+  frequency?: number; // Hz (for wave, e.g. 1.2)
+  amplitude?: number; // m (for wave, e.g. 0.5)
+  waveSpeed?: number; // m/s (for wave, e.g. 2.0)
 }
 
 export interface PhysicsState {
@@ -30,6 +33,11 @@ export interface PhysicsState {
   // Trajectory history for path tracing
   trail: { x: number; y: number; alpha: number }[];
 }
+
+/** Wave string spans x ∈ [-WAVE_HALF_LENGTH, WAVE_HALF_LENGTH] metres. */
+export const WAVE_HALF_LENGTH = 2;
+/** Fixed x position (m) of the highlighted probe particle on the string. */
+export const WAVE_PROBE_X = -1;
 
 export interface DiagramDetectionResult {
   detected: boolean;
@@ -158,9 +166,10 @@ export class LivingInkPhysicsEngine {
         return {
           gravity: 9.80665,
           mass: 1.0,
-          planetMass: 1000.0,
+          planetMass: 40.0,
           damping: 0.0,
-          initialVelocity: { x: 0, y: 3.8 },
+          // Near-circular orbit at r0 = 1.8: v_circ = sqrt(GM/r) ≈ 4.71
+          initialVelocity: { x: 0, y: 4.7 },
         };
       case 'projectile':
         return {
@@ -168,6 +177,15 @@ export class LivingInkPhysicsEngine {
           mass: 0.5,
           damping: 0.008,
           initialVelocity: { x: 12.0, y: 15.0 },
+        };
+      case 'wave':
+        return {
+          gravity: 9.80665,
+          mass: 1.0,
+          damping: 0.02,
+          frequency: 1.2,
+          amplitude: 0.5,
+          waveSpeed: 2.0,
         };
     }
   }
@@ -213,16 +231,18 @@ export class LivingInkPhysicsEngine {
       }
       case 'orbit': {
         const r0 = 1.8;
-        const v0 = params.initialVelocity || { x: 0, y: 3.8 };
+        const v0 = params.initialVelocity || { x: 0, y: 4.7 };
+        const orbitKE = 0.5 * params.mass * (v0.x * v0.x + v0.y * v0.y);
+        const orbitPE = -(params.planetMass || 40) / r0;
         return {
           time: 0,
           angle: 0,
           angularVelocity: 0,
           position: { x: r0, y: 0 },
           velocity: { ...v0 },
-          kineticEnergy: 0.5 * params.mass * (v0.x * v0.x + v0.y * v0.y),
-          potentialEnergy: - (params.planetMass || 1000) / r0,
-          totalEnergy: 0,
+          kineticEnergy: orbitKE,
+          potentialEnergy: orbitPE,
+          totalEnergy: orbitKE + orbitPE,
           trail: [],
         };
       }
@@ -240,7 +260,45 @@ export class LivingInkPhysicsEngine {
           trail: [],
         };
       }
+      case 'wave': {
+        const snap = LivingInkPhysicsEngine.waveSnapshot(params, 0);
+        return {
+          time: 0,
+          angle: 0,
+          angularVelocity: 0,
+          position: { x: WAVE_PROBE_X, y: snap.probeY },
+          velocity: { x: 0, y: snap.probeVy },
+          kineticEnergy: snap.ke,
+          potentialEnergy: snap.pe,
+          totalEnergy: snap.total,
+          trail: [],
+        };
+      }
     }
+  }
+
+  /**
+   * Analytic snapshot of a traveling transverse wave y(x,t) = A(t)·sin(kx − ωt)
+   * with exponential amplitude decay. Returns the probe-particle motion at
+   * WAVE_PROBE_X plus the string energy split for live gauges.
+   */
+  public static waveSnapshot(
+    params: PhysicsParams,
+    t: number
+  ): { probeY: number; probeVy: number; ke: number; pe: number; total: number; omega: number; k: number; amp: number } {
+    const f = params.frequency || 1.2;
+    const A0 = params.amplitude ?? 0.5;
+    const v = params.waveSpeed || 2.0;
+    const omega = 2 * Math.PI * f;
+    const k = omega / Math.max(0.1, v);
+    const amp = A0 * Math.exp(-params.damping * t);
+    const phase = k * WAVE_PROBE_X - omega * t;
+    const probeY = amp * Math.sin(phase);
+    const probeVy = -amp * omega * Math.cos(phase);
+    // Total string energy E = ½·μ·ω²·A²·L with μ = 1, L = 2·WAVE_HALF_LENGTH
+    const total = 0.5 * omega * omega * amp * amp * 2 * WAVE_HALF_LENGTH;
+    const ke = total * Math.cos(phase) * Math.cos(phase);
+    return { probeY, probeVy, ke, pe: total - ke, total, omega, k, amp };
   }
 
   /**
@@ -367,6 +425,23 @@ export class LivingInkPhysicsEngine {
         potentialEnergy: potential,
         totalEnergy: kinetic + potential,
         trail: nextTrail.slice(-120),
+      };
+    }
+
+    if (type === 'wave') {
+      // Analytic traveling wave: state is an exact function of time, no drift.
+      const t = state.time + dt;
+      const snap = LivingInkPhysicsEngine.waveSnapshot(params, t);
+      return {
+        time: t,
+        angle: 0,
+        angularVelocity: 0,
+        position: { x: WAVE_PROBE_X, y: snap.probeY },
+        velocity: { x: 0, y: snap.probeVy },
+        kineticEnergy: snap.ke,
+        potentialEnergy: snap.pe,
+        totalEnergy: snap.total,
+        trail: [],
       };
     }
 

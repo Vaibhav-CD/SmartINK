@@ -19,7 +19,7 @@ import { CanvasViewportControls } from '../CanvasViewportControls';
 import { InlineMathProjection } from '../InlineMathProjection';
 import { InteractiveFunctionPlot } from '../InteractiveFunctionPlot';
 import { LivingPhysicsWidget } from '../LivingPhysicsWidget';
-import { LivingInkPhysicsEngine, type PhysicsSystemType } from '../../services/physics/livingInkPhysics';
+import { LivingInkPhysicsEngine, type PhysicsParams, type PhysicsSystemType } from '../../services/physics/livingInkPhysics';
 import { eraseStrokePixels } from '../../services/ink/pixelErase';
 import { Zap, Activity, Trash2, X, Target, Sparkles, PenLine, Sigma, Atom } from 'lucide-react';
 import { OnDeviceStrokeRecognizer, type ProjectedEquation } from '../../services/calcInk/strokeRecognizer';
@@ -50,6 +50,7 @@ export interface PhysicsSimItem {
   type: PhysicsSystemType;
   title: string;
   position: Point;
+  params?: PhysicsParams;
 }
 
 interface InfiniteCanvasProps {
@@ -1044,6 +1045,7 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
             <LivingPhysicsWidget
               id={sim.id}
               initialType={sim.type}
+              initialParams={sim.params}
               title={sim.title}
               position={sim.position}
               onClose={() => {

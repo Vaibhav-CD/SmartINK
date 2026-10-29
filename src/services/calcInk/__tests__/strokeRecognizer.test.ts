@@ -473,3 +473,156 @@ describe('CalcInk On-Device Stroke Recognizer & Equation Scanner', () => {
     expect(parsed.expressionStr).toBeTruthy();
   });
 });
+
+describe('Synthetic ink exclusion (projected answers never feed back into recognition)', () => {
+  // User-written "6 + 6" (same geometry as the baseline scan test).
+  function userEquation(): Stroke[] {
+    const mk = (id: string, points: { x: number; y: number }[], createdAt: number): Stroke => ({
+      id,
+      points,
+      color: '#a3e635',
+      width: 3,
+      createdAt,
+    });
+    return [
+      mk('six-1', [
+        { x: 20, y: 15 }, { x: 12, y: 35 }, { x: 10, y: 50 },
+        { x: 20, y: 55 }, { x: 30, y: 45 }, { x: 15, y: 40 },
+      ], 1000),
+      mk('plus-v', [{ x: 50, y: 25 }, { x: 50, y: 55 }], 1001),
+      mk('plus-h', [{ x: 38, y: 40 }, { x: 62, y: 40 }], 1002),
+      mk('six-2', [
+        { x: 85, y: 15 }, { x: 77, y: 35 }, { x: 75, y: 50 },
+        { x: 85, y: 55 }, { x: 95, y: 45 }, { x: 80, y: 40 },
+      ], 1003),
+    ];
+  }
+
+  // Synthesized "= 12" answer ink adjacent to the equation, as handleWriteInInk places it.
+  function syntheticAnswer(): Stroke[] {
+    const mk = (id: string, points: { x: number; y: number }[]): Stroke => ({
+      id,
+      points,
+      color: '#a3e635',
+      width: 3,
+      createdAt: 2000,
+      synthetic: true,
+    });
+    return [
+      mk('syn-eq-t', [{ x: 105, y: 30 }, { x: 130, y: 30 }]),
+      mk('syn-eq-b', [{ x: 105, y: 44 }, { x: 130, y: 44 }]),
+      mk('syn-1', [{ x: 140, y: 22 }, { x: 140, y: 52 }]),
+      mk('syn-2', [
+        { x: 150, y: 25 }, { x: 162, y: 25 }, { x: 162, y: 35 },
+        { x: 150, y: 50 }, { x: 165, y: 50 },
+      ]),
+    ];
+  }
+
+  it('scans the same equation with or without synthetic answer ink present', () => {
+    const base = OnDeviceStrokeRecognizer.scanEquations(userEquation());
+    const mixed = OnDeviceStrokeRecognizer.scanEquations([...userEquation(), ...syntheticAnswer()]);
+    expect(base.length).toBe(1);
+    expect(base[0].expressionText).toBe('6+6');
+    expect(mixed.length).toBe(1);
+    expect(mixed[0].expressionText).toBe(base[0].expressionText);
+    expect(mixed[0].evaluation.display).toBe(base[0].evaluation.display);
+    expect(mixed[0].anchorPosition.x).toBe(base[0].anchorPosition.x);
+  });
+
+  it('returns no equations for synthetic-only strokes', () => {
+    expect(OnDeviceStrokeRecognizer.scanEquations(syntheticAnswer())).toEqual([]);
+  });
+
+  it('recognizeStrokeGroup ignores synthetic strokes in a circled selection', () => {
+    const res = OnDeviceStrokeRecognizer.recognizeStrokeGroup([...userEquation(), ...syntheticAnswer()]);
+    expect(res?.expressionText).toBe('6+6');
+  });
+});
+
+describe('PS spec example end-to-end (strokes → 30)', () => {
+  it('scans handwritten "18+4×3=" and evaluates to 30 with precedence', () => {
+    const mk = (id: string, points: { x: number; y: number }[], createdAt: number): Stroke => ({
+      id, points, color: '#a3e635', width: 3, createdAt,
+    });
+    const strokes: Stroke[] = [
+      // '1'
+      mk('d1', [{ x: 20, y: 10 }, { x: 20, y: 50 }], 1000),
+      // '8' (figure-8, template-shaped)
+      mk('d8', [
+        { x: 57, y: 32 }, { x: 45, y: 21 }, { x: 57, y: 10 },
+        { x: 69, y: 21 }, { x: 57, y: 32 }, { x: 43, y: 43 },
+        { x: 57, y: 54 }, { x: 71, y: 43 }, { x: 57, y: 32 },
+      ], 1001),
+      // '+' (two strokes)
+      mk('plus-v', [{ x: 102, y: 22 }, { x: 102, y: 52 }], 1002),
+      mk('plus-h', [{ x: 90, y: 37 }, { x: 115, y: 37 }], 1003),
+      // '4' (L + vertical)
+      mk('four-l', [{ x: 150, y: 12 }, { x: 133, y: 37 }, { x: 157, y: 37 }], 1004),
+      mk('four-v', [{ x: 150, y: 12 }, { x: 150, y: 52 }], 1005),
+      // '×' (two crossing diagonals)
+      mk('mul-a', [{ x: 177, y: 22 }, { x: 199, y: 50 }], 1006),
+      mk('mul-b', [{ x: 199, y: 22 }, { x: 177, y: 50 }], 1007),
+      // '3' (template-shaped)
+      mk('d3', [
+        { x: 220, y: 20 }, { x: 260, y: 20 }, { x: 240, y: 48 },
+        { x: 265, y: 65 }, { x: 240, y: 85 }, { x: 215, y: 78 },
+      ], 1008),
+      // '=' (two bars)
+      mk('eq-t', [{ x: 275, y: 30 }, { x: 305, y: 30 }], 1009),
+      mk('eq-b', [{ x: 275, y: 44 }, { x: 305, y: 44 }], 1010),
+    ];
+
+    const equations = OnDeviceStrokeRecognizer.scanEquations(strokes);
+    expect(equations.length).toBe(1);
+    expect(equations[0].evaluation.value).toBe(30);
+    expect(equations[0].evaluation.display).toBe('30');
+  });
+
+  it('classifies a two-stroke L + stem as digit "4", not "+"', () => {
+    const l: Stroke = {
+      id: 'four-l', points: [{ x: 150, y: 12 }, { x: 133, y: 37 }, { x: 157, y: 37 }],
+      color: '#a3e635', width: 3, createdAt: 1,
+    };
+    const v: Stroke = {
+      id: 'four-v', points: [{ x: 150, y: 12 }, { x: 150, y: 52 }],
+      color: '#a3e635', width: 3, createdAt: 2,
+    };
+    expect(OnDeviceStrokeRecognizer.classifyGlyph([l, v]).char).toBe('4');
+  });
+
+  it('classifies two crossing diagonals as "x" (parser promotes digit-x-digit to ×)', () => {
+    const a: Stroke = {
+      id: 'mul-a', points: [{ x: 177, y: 22 }, { x: 199, y: 50 }],
+      color: '#a3e635', width: 3, createdAt: 1,
+    };
+    const b: Stroke = {
+      id: 'mul-b', points: [{ x: 199, y: 22 }, { x: 177, y: 50 }],
+      color: '#a3e635', width: 3, createdAt: 2,
+    };
+    expect(OnDeviceStrokeRecognizer.classifyGlyph([a, b]).char).toBe('x');
+  });
+
+  it('keeps variable "x" a variable outside digit-digit context (2x=6 → x = 3)', () => {
+    const mk = (id: string, points: { x: number; y: number }[], createdAt: number): Stroke => ({
+      id, points, color: '#a3e635', width: 3, createdAt,
+    });
+    const equations = OnDeviceStrokeRecognizer.scanEquations([
+      mk('d2', [
+        { x: 25, y: 35 }, { x: 35, y: 18 }, { x: 65, y: 18 }, { x: 75, y: 35 },
+        { x: 60, y: 55 }, { x: 25, y: 85 }, { x: 75, y: 85 },
+      ], 1),
+      mk('x-a', [{ x: 87, y: 25 }, { x: 109, y: 53 }], 2),
+      mk('x-b', [{ x: 109, y: 25 }, { x: 87, y: 53 }], 3),
+      mk('eq-t', [{ x: 120, y: 35 }, { x: 145, y: 35 }], 4),
+      mk('eq-b', [{ x: 120, y: 49 }, { x: 145, y: 49 }], 5),
+      mk('d6', [
+        { x: 165, y: 15 }, { x: 157, y: 35 }, { x: 155, y: 50 },
+        { x: 165, y: 55 }, { x: 175, y: 45 }, { x: 160, y: 40 },
+      ], 6),
+    ]);
+    expect(equations.length).toBe(1);
+    expect(equations[0].expressionText).toBe('2x=6');
+    expect(equations[0].evaluation.display).toBe('x = 3');
+  });
+});

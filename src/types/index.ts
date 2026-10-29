@@ -17,6 +17,8 @@ export interface Stroke {
   recognizedText?: string;
   recognizedLatex?: string;
   createdAt: number;
+  /** Display-only ink (projected answers, dictated write-ups): skipped by recognition. */
+  synthetic?: boolean;
 }
 
 export interface ProofStep {

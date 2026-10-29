@@ -90,4 +90,16 @@ describe('HandwritingVectorSynthesizer (Apple Math Notes Style)', () => {
     const lastX = lastStroke.points[lastStroke.points.length - 1].x;
     expect(lastX).toBeGreaterThan(firstX + 50);
   });
+
+  it('marks all generated strokes as synthetic so recognition skips them', () => {
+    const strokes = HandwritingVectorSynthesizer.synthesize(
+      '= 12',
+      { x: 100, y: 100 },
+      { color: '#a3e635', avgStrokeWidth: 3.5, slantAngle: 0 }
+    );
+    expect(strokes.length).toBeGreaterThan(0);
+    for (const s of strokes) {
+      expect(s.synthetic).toBe(true);
+    }
+  });
 });

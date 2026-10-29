@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import {
   LivingInkPhysicsEngine,
+  WAVE_HALF_LENGTH,
+  WAVE_PROBE_X,
   type PhysicsSystemType,
   type PhysicsParams,
   type PhysicsState,
@@ -21,6 +23,7 @@ import type { Point } from '../types';
 export interface LivingPhysicsWidgetProps {
   id: string;
   initialType?: PhysicsSystemType;
+  initialParams?: PhysicsParams;
   title?: string;
   position: Point;
   onClose: () => void;
@@ -30,6 +33,7 @@ export interface LivingPhysicsWidgetProps {
 export const LivingPhysicsWidget: React.FC<LivingPhysicsWidgetProps> = ({
   id: _id,
   initialType = 'pendulum',
+  initialParams,
   title = 'Living Ink Physics Simulation',
   position,
   onClose,
@@ -37,7 +41,7 @@ export const LivingPhysicsWidget: React.FC<LivingPhysicsWidgetProps> = ({
 }) => {
   const [systemType, setSystemType] = useState<PhysicsSystemType>(initialType);
   const [params, setParams] = useState<PhysicsParams>(() =>
-    LivingInkPhysicsEngine.getDefaultParams(initialType)
+    initialParams ?? LivingInkPhysicsEngine.getDefaultParams(initialType)
   );
   const [state, setState] = useState<PhysicsState>(() =>
     LivingInkPhysicsEngine.createInitialState(initialType, params)
@@ -307,6 +311,41 @@ export const LivingPhysicsWidget: React.FC<LivingPhysicsWidgetProps> = ({
       ctx.fill();
       ctx.strokeStyle = '#fff';
       ctx.stroke();
+    } else if (systemType === 'wave') {
+      const padX = 36;
+      const pxPerM = (width - padX * 2) / (2 * WAVE_HALF_LENGTH);
+      const pyPerM = 80;
+      const cy = height / 2;
+      const snap = LivingInkPhysicsEngine.waveSnapshot(params, state.time);
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.moveTo(padX, cy);
+      ctx.lineTo(width - padX, cy);
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.4)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      for (let i = 0; i <= 120; i++) {
+        const x = -WAVE_HALF_LENGTH + (i / 120) * 2 * WAVE_HALF_LENGTH;
+        const y = snap.amp * Math.sin(snap.k * x - snap.omega * state.time);
+        const sx = padX + (x + WAVE_HALF_LENGTH) * pxPerM;
+        const sy = cy - y * pyPerM;
+        if (i === 0) ctx.moveTo(sx, sy);
+        else ctx.lineTo(sx, sy);
+      }
+      ctx.strokeStyle = '#a3e635';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      const probeSx = padX + (WAVE_PROBE_X + WAVE_HALF_LENGTH) * pxPerM;
+      const probeSy = cy - snap.probeY * pyPerM;
+      ctx.beginPath();
+      ctx.arc(probeSx, probeSy, 7, 0, Math.PI * 2);
+      ctx.fillStyle = '#38bdf8';
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
     }
   }, [state, systemType, params, isDraggingBob, showVectors]);
 
@@ -471,7 +510,7 @@ export const LivingPhysicsWidget: React.FC<LivingPhysicsWidgetProps> = ({
         <div className="p-3 space-y-3">
           {/* System Selection Tabs */}
           <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-900/90 border border-slate-800 text-[11px] font-mono">
-            {(['pendulum', 'spring', 'orbit', 'projectile'] as PhysicsSystemType[]).map((type) => (
+            {(['pendulum', 'spring', 'orbit', 'projectile', 'wave'] as PhysicsSystemType[]).map((type) => (
               <button
                 key={type}
                 onClick={() => handleSwitchType(type)}
@@ -510,6 +549,7 @@ export const LivingPhysicsWidget: React.FC<LivingPhysicsWidgetProps> = ({
               {systemType === 'spring' && `T = ${period?.toFixed(2)}s | x = ${state.position.x.toFixed(2)}m`}
               {systemType === 'orbit' && `v = ${Math.hypot(state.velocity.x, state.velocity.y).toFixed(2)} km/s`}
               {systemType === 'projectile' && `y = ${state.position.y.toFixed(1)}m | x = ${state.position.x.toFixed(1)}m`}
+              {systemType === 'wave' && `f = ${(params.frequency || 1.2).toFixed(1)}Hz | T = ${(1 / (params.frequency || 1.2)).toFixed(2)}s`}
             </div>
           </div>
 
@@ -618,7 +658,8 @@ export const LivingPhysicsWidget: React.FC<LivingPhysicsWidgetProps> = ({
           {/* Collapsible STEM Parameter Sliders */}
           {showControls && (
             <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800/80 space-y-2.5 text-xs font-mono animate-in fade-in duration-150">
-              {/* Gravity Environment Presets */}
+              {/* Gravity Environment Presets (hidden for wave: no gravity term) */}
+              {systemType !== 'wave' && (
               <div>
                 <div className="text-[11px] text-slate-400 mb-1 flex items-center justify-between">
                   <span>Gravity (g): {params.gravity.toFixed(2)} m/s²</span>
@@ -644,6 +685,7 @@ export const LivingPhysicsWidget: React.FC<LivingPhysicsWidgetProps> = ({
                   ))}
                 </div>
               </div>
+              )}
 
               {/* Length Slider (for pendulum) */}
               {systemType === 'pendulum' && (

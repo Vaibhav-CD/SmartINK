@@ -435,6 +435,18 @@ export class PointCloudRecognizer {
       { x: 25, y: 75 }, { x: 75, y: 25 }
     ]);
 
+    // Diagonal cross 'x' (two crossing diagonals). The expression parser
+    // promotes digit-x-digit to multiplication '×'; otherwise it stays the
+    // variable 'x'. Single continuous path (no pen jumps) so resampling
+    // matches multi-stroke candidates under orderless cloud distance.
+    this.addTemplate('op_cross_x', 'x', [
+      { x: 20, y: 20 },
+      { x: 80, y: 80 },
+      { x: 50, y: 50 },
+      { x: 80, y: 20 },
+      { x: 20, y: 80 },
+    ]);
+
     // Division '/'
     this.addTemplate('op_div', '/', [
       { x: 25, y: 88 },

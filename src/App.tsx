@@ -13,12 +13,13 @@ import type {
   Stroke
 } from './types';
 import { InfiniteCanvas, type FunctionPlotItem, type PhysicsSimItem } from './components/Canvas/InfiniteCanvas';
-import { type PhysicsSystemType } from './services/physics/livingInkPhysics';
+import { type PhysicsParams, type PhysicsSystemType } from './services/physics/livingInkPhysics';
 import { FloatingDock } from './components/FloatingDock';
 import { UnifiedTopBar } from './components/UnifiedTopBar';
 import { WorkspaceExplorer } from './components/WorkspaceExplorer';
 import { CommandPalette } from './components/CommandPalette';
 import { SmartInkHomePage } from './components/SmartInkHomePage';
+import { SimulationStudio } from './components/SimulationStudio/SimulationStudio';
 import { MetaAIService } from './services/metaAI';
 import { loadWorkspace, saveWorkspace, createDefaultWorkspace } from './services/workspaceStorage';
 import { OnDeviceStrokeRecognizer, type ProjectedEquation } from './services/calcInk/strokeRecognizer';
@@ -32,7 +33,8 @@ import { HandwritingVectorSynthesizer } from './services/calcInk/handwritingSynt
 import { getStrokesBoundingBox } from './services/calcInk/coordinateTransform';
 
 export function App() {
-  const [currentView, setCurrentView] = useState<'home' | 'canvas'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'canvas' | 'studio'>('home');
+  const [studioReturnView, setStudioReturnView] = useState<'home' | 'canvas'>('home');
   const [tool, setTool] = useState<ToolMode>('select');
   const [penColor, setPenColor] = useState<string>('#a3e635');
   const [strokeWidth, setStrokeWidth] = useState<number>(3.5);
@@ -255,19 +257,27 @@ export function App() {
   };
 
   // Living Ink 60 FPS Physics Simulations
-  const handleAddPhysicsSimulation = (type: PhysicsSystemType = 'pendulum', position?: Point) => {
+  const handleAddPhysicsSimulation = (
+    type: PhysicsSystemType = 'pendulum',
+    position?: Point,
+    params?: PhysicsParams,
+    customTitle?: string
+  ) => {
     const pos = position || {
       x: 340 + (physicsSimulations.length % 3) * 440,
       y: 160 + Math.floor(physicsSimulations.length / 3) * 320,
     };
     const title =
-      type === 'pendulum'
+      customTitle ||
+      (type === 'pendulum'
         ? 'Simple Pendulum'
         : type === 'spring'
         ? 'Spring-Mass Oscillator'
         : type === 'orbit'
         ? 'Gravitational Orbit'
-        : 'Projectile Kinematics';
+        : type === 'wave'
+        ? 'Traveling Wave'
+        : 'Projectile Kinematics');
 
     setPhysicsSimulations((prev) => [
       ...prev,
@@ -276,9 +286,21 @@ export function App() {
         type,
         title,
         position: pos,
+        params,
       },
     ]);
     speakText(`Started 60 FPS living ${type} physics simulation.`);
+  };
+
+  // Simulation Studio section
+  const handleEnterStudio = (from: 'home' | 'canvas' = 'home') => {
+    setStudioReturnView(from);
+    setCurrentView('studio');
+  };
+
+  const handlePinStudioToCanvas = (type: PhysicsSystemType, params: PhysicsParams, title: string) => {
+    handleAddPhysicsSimulation(type, undefined, params, title);
+    setCurrentView('canvas');
   };
 
   const handleDeletePhysicsSimulation = (id: string) => {
@@ -920,12 +942,18 @@ export function App() {
     return (
       <SmartInkHomePage
         onEnterCanvas={handleEnterCanvasFromHome}
+        onEnterStudio={() => handleEnterStudio('home')}
         onLoadPreset={handleLoadPresetScenario}
         theme={theme}
         onToggleTheme={toggleTheme}
         onStartVoice={handleToggleVoiceListen}
       />
     );
+  }
+
+  // Simulation Studio section: requirement-driven physics with live parameters.
+  if (currentView === 'studio') {
+    return <SimulationStudio onBack={() => setCurrentView(studioReturnView)} onPinToCanvas={handlePinStudioToCanvas} />;
   }
 
   return (
@@ -1409,6 +1437,7 @@ export function App() {
         onAddPlot={() => handleAddPlot('sin(x)')}
         plotCount={functionPlots.length}
         onAddPhysics={() => handleAddPhysicsSimulation('pendulum')}
+        onOpenStudio={() => handleEnterStudio('canvas')}
         onUndo={handleUndo}
         onRedo={handleRedo}
         canUndo={undoStack.length > 0}

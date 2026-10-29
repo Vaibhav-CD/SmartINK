@@ -405,7 +405,10 @@ export class OnDeviceStrokeRecognizer {
       }
     }
 
-    // Fast-path 2: Two orthogonal crossing strokes -> '+'
+    // Fast-path 2: Two strongly axis-aligned crossing strokes -> '+'.
+    // (A lax ratio here misfires on '×' diagonals and '4' shapes, so bars
+    // must be decisively horizontal / vertical; sloppy crosses fall through
+    // to point-cloud matching below.)
     if (strokes.length === 2) {
       const s1 = strokes[0];
       const s2 = strokes[1];
@@ -413,10 +416,10 @@ export class OnDeviceStrokeRecognizer {
       const b2 = getStrokesBoundingBox([s2]);
 
       if (b1 && b2) {
-        const isOneH = b1.width >= b1.height * 0.7;
-        const isTwoV = b2.height >= b2.width * 0.7;
-        const isOneV = b1.height >= b1.width * 0.7;
-        const isTwoH = b2.width >= b2.height * 0.7;
+        const isOneH = b1.width >= b1.height * 1.8;
+        const isTwoV = b2.height >= b2.width * 1.8;
+        const isOneV = b1.height >= b1.width * 1.8;
+        const isTwoH = b2.width >= b2.height * 1.8;
         const boxesOverlap2D =
           (Math.min(b1.maxX, b2.maxX) - Math.max(b1.minX, b2.minX) > -4) &&
           (Math.min(b1.maxY, b2.maxY) - Math.max(b1.minY, b2.minY) > -4);
@@ -475,10 +478,10 @@ export class OnDeviceStrokeRecognizer {
 
       if (b1 && b2) {
         // Intersecting / crossing strokes: '+' vs '×' vs '4'
-        const isOneH = b1.width >= b1.height * 0.7;
-        const isTwoV = b2.height >= b2.width * 0.7;
-        const isOneV = b1.height >= b1.width * 0.7;
-        const isTwoH = b2.width >= b2.height * 0.7;
+        const isOneH = b1.width >= b1.height * 1.8;
+        const isTwoV = b2.height >= b2.width * 1.8;
+        const isOneV = b1.height >= b1.width * 1.8;
+        const isTwoH = b2.width >= b2.height * 1.8;
         const boxesOverlap2D =
           (Math.min(b1.maxX, b2.maxX) - Math.max(b1.minX, b2.minX) > -4) &&
           (Math.min(b1.maxY, b2.maxY) - Math.max(b1.minY, b2.minY) > -4);
@@ -486,6 +489,17 @@ export class OnDeviceStrokeRecognizer {
         // One horizontal and one vertical crossing -> '+'
         if (((isOneH && isTwoV) || (isOneV && isTwoH)) && (boxesOverlap2D || this.doStrokesIntersect(s1, s2))) {
           return { char: '+', confidence: 0.98 };
+        }
+
+        // Digit 4 (L/diagonal + vertical stem). Must precede the intersecting
+        // catch-all below; the non-vertical stroke must NOT be a thin bar
+        // (that would be a '+', already returned above).
+        if (strokes.length === 2) {
+          const fourShape =
+            (isOneV && !isTwoH) || (isTwoV && !isOneH);
+          if (fourShape && aspectRatio > 0.35 && aspectRatio < 1.1) {
+            return { char: '4', confidence: 0.90 };
+          }
         }
 
         // Two intersecting strokes near centers -> diagonal 'x'
@@ -497,14 +511,6 @@ export class OnDeviceStrokeRecognizer {
             return { char: 'x', confidence: 0.95 };
           }
           return { char: '+', confidence: 0.90 };
-        }
-
-        // Digit 4 (often written with 2 strokes: L shape + vertical stroke)
-        if (strokes.length === 2) {
-          const hasVertical = (b1.height > b1.width * 1.8) || (b2.height > b2.width * 1.8);
-          if (hasVertical && aspectRatio > 0.35 && aspectRatio < 1.1) {
-            return { char: '4', confidence: 0.90 };
-          }
         }
 
         // Digit 5 (often written with 2 strokes: top horizontal bar + vertical-loop body)
@@ -823,10 +829,14 @@ export class OnDeviceStrokeRecognizer {
   public static scanEquations(strokes: Stroke[]): ProjectedEquation[] {
     if (strokes.length === 0) return [];
 
+    // Projected answer ink is display-only: exclude it so re-scans stay stable.
+    const userStrokes = strokes.filter((s) => !s.synthetic);
+    if (userStrokes.length === 0) return [];
+
     const equations: ProjectedEquation[] = [];
 
     // 1. Sort all strokes from left to right by minX
-    const sortedStrokes = [...strokes].sort((a, b) => {
+    const sortedStrokes = [...userStrokes].sort((a, b) => {
       const ba = getStrokesBoundingBox([a]);
       const bb = getStrokesBoundingBox([b]);
       return (ba?.minX || 0) - (bb?.minX || 0);
@@ -1163,6 +1173,12 @@ private static parseSimpleGlyphSequence(strokes: Stroke[], glyphOverrides?: Map<
     else if ((char === 'z' || char === 'Z') && (isPrevMath || isNextMath)) {
       char = '2';
     }
+    // A cross between two numeric operands is multiplication '×' (spec
+    // example: 18+4×3), not the variable 'x'. Single-side adjacency
+    // (2x, x2, y=x) stays a variable.
+    else if (char === 'x' && /[0-9).]/.test(prevChar) && /[0-9(.]/.test(nextChar)) {
+      char = '×';
+    }
 
     disambiguated.push(char);
   }
@@ -1183,7 +1199,9 @@ private static parseSimpleGlyphSequence(strokes: Stroke[], glyphOverrides?: Map<
       }
     }
 
-    if (this.isSuperscript(current.box, prev?.box || null, next?.box || null)) {
+    // '=' is never superscript content ('^=' cannot evaluate); a raised
+    // equals sign is still an equals sign.
+    if (char !== '=' && this.isSuperscript(current.box, prev?.box || null, next?.box || null)) {
       expressionStr += '^' + char;
     } else {
       expressionStr += char;
@@ -1211,11 +1229,15 @@ private static parseSimpleGlyphSequence(strokes: Stroke[], glyphOverrides?: Map<
 public static recognizeStrokeGroup(strokes: Stroke[]): ProjectedEquation | null {
   if (strokes.length === 0) return null;
 
-  const clusterBox = getStrokesBoundingBox(strokes);
+  // Circling a projected answer must not corrupt the recognized expression.
+  const userStrokes = strokes.filter((s) => !s.synthetic);
+  if (userStrokes.length === 0) return null;
+
+  const clusterBox = getStrokesBoundingBox(userStrokes);
   if (!clusterBox) return null;
 
-  const style = this.extractHandwritingStyle(strokes);
-  const parsed = this.parseClusterToExpression(strokes);
+  const style = this.extractHandwritingStyle(userStrokes);
+  const parsed = this.parseClusterToExpression(userStrokes);
   const cleanedExpr = parsed.expressionStr.trim();
   if (!cleanedExpr) return null;
 
@@ -1224,7 +1246,7 @@ public static recognizeStrokeGroup(strokes: Stroke[]): ProjectedEquation | null 
     const evalAt0 = MathParser.evaluate(parsed.functionBody, { x: 0 });
     return {
       id: `sel-${Date.now()}`,
-      strokeIds: strokes.map((s) => s.id),
+      strokeIds: userStrokes.map((s) => s.id),
       expressionText: cleanedExpr,
       evaluation: {
         success: true,
@@ -1251,7 +1273,7 @@ public static recognizeStrokeGroup(strokes: Stroke[]): ProjectedEquation | null 
   if (evalResult.success && ((evalResult.value !== null && isFinite(evalResult.value)) || evalResult.isEquationSolution || evalResult.isUndefined)) {
     return {
       id: `sel-${Date.now()}`,
-      strokeIds: strokes.map((s) => s.id),
+      strokeIds: userStrokes.map((s) => s.id),
       expressionText: cleanedExpr,
       evaluation: evalResult,
       anchorPosition: {

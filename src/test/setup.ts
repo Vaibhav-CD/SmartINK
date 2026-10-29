@@ -35,6 +35,8 @@ if (typeof HTMLCanvasElement !== 'undefined') {
         quadraticCurveTo: () => {},
         bezierCurveTo: () => {},
         setLineDash: () => {},
+        createRadialGradient: () => ({ addColorStop: () => {} }),
+        createLinearGradient: () => ({ addColorStop: () => {} }),
       } as any;
     }
     return null;

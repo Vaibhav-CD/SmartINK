@@ -20,6 +20,7 @@ SmartInk unites the fluid pen feel of Apple Notes and GoodNotes, the real-time l
   - **Geometric Shape Tools:** Lines, rectangles, ellipses, and arrows with real-time feedback.
   - **Dual Eraser:** Whole-stroke erase plus boundary-precise pixel erase with a canvas toggle.
   - **Extended Symbol Recognition:** ∫ Σ Δ θ ∞ ≤ ≥ ≠ → ± ÷ √ π beyond digits and operators, with structural ÷ detection that never confuses fractions.
+- **Simulation Studio:** Describe a setup ("launch a projectile on the Moon at 20 m/s and 45°") and watch it simulate — 5 systems (pendulum, spring, orbit, projectile, wave) with live parameter sliders, world gravity presets, energy gauges, slow motion, and one-click pin to canvas.
   - **Undo / Redo History Stack:** With `Ctrl+Z` and `Ctrl+Y` keyboard shortcuts.
 
 ### 2. CalcInk: Living Handwriting Math Engine
@@ -64,6 +65,29 @@ SmartInk unites the fluid pen feel of Apple Notes and GoodNotes, the real-time l
 - **Neural inference:** ONNX Runtime Web (single-thread WASM) + Web Worker
 
 ---
+
+## 🤖 Runtime Model Disclosure (Meta-Only Compliance)
+
+Every model or AI service the app can call at runtime, and when each path activates:
+
+| # | Runtime call | Model / service | Meta? | When active |
+|---|--------------|-----------------|-------|-------------|
+| 1 | Copilot, proofs, translation, general knowledge (`src/services/metaAI.ts`) | **Meta Llama** (`llama-3.3-70b-instruct` default; override via `VITE_META_MODEL` / `VITE_META_API_URL`) | ✅ Yes | Only when a Meta API key is configured (`VITE_META_API_KEY`, `VITE_LLAMA_API_KEY`, or in-app settings) |
+| 2 | Lasso / spatial copilot query (`src/engine/metaAiClient.ts`) | **Meta Llama** (`llama-3.3-70b-versatile` default via the configured OpenAI-compatible endpoint) | ✅ Yes (Meta model family) | Only when a key is saved in Meta settings; otherwise returns the offline template |
+| 3 | Digit refinement (`src/services/recognition/`, `public/models/mnist-12.onnx`) | MNIST-12 CNN, ONNX Model Zoo (MIT), 100% on-device via ONNX Runtime Web | ⚠️ **No — exception, see below** | Always available offline; only refines digits at ≥0.90 confidence, geometric result otherwise |
+| 4 | Translation fallback (`src/services/translation/translationService.ts`) | MyMemory web API | ⚠️ **No — inactive during a Meta-keyed demo** | Only when NO Meta key is set AND network is up; with a Meta key, path #1 serves all translation |
+| 5 | Speech in/out (`src/services/speech/`, `src/engine/speechEngine.ts`) | Web Speech API (browser / OS voices) | — (platform API, no third-party model call) | Always; voices come from the user's own browser |
+
+Everything else — geometric stroke recognizer, math parser, step solver, text transcription templates, physics engines — is deterministic local code, not a model call.
+
+**For the demo video (Meta-only story):** configure a Meta API key before recording. Then paths #1–#2 serve every AI feature (copilot, proofs, translation, write-ups) and path #4 never fires. The single non-Meta item is #3, the 26 kB on-device MNIST digit refiner required by the CalcInk problem statement's pre-trained-model clause — it runs fully offline, calls no service, and only ever overrides the geometric recognizer when ≥90% confident. Call this out explicitly in the video ("our one exception: an offline MIT-licensed digit refiner, no data leaves the device").
+
+## 🏛️ Architecture
+
+The full CalcInk design record — pipeline diagram, pre-trained model
+justification with evaluated alternatives, stroke-to-tensor bridge, 60 FPS /
+offline / memory strategy, and the test-map cross-reference — lives in
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## 🧠 Neural Model Attribution
 

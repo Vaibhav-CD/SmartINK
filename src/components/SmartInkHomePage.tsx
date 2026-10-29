@@ -11,11 +11,13 @@ import {
   Layers, 
   Sun, 
   Moon,
-  ChevronDown
+  ChevronDown,
+  FlaskConical
 } from 'lucide-react';
 
 interface SmartInkHomePageProps {
   onEnterCanvas: (initialQuery?: string) => void;
+  onEnterStudio: () => void;
   onLoadPreset: (presetName: string) => void;
   theme: 'dark' | 'light';
   onToggleTheme: () => void;
@@ -24,6 +26,7 @@ interface SmartInkHomePageProps {
 
 export const SmartInkHomePage: React.FC<SmartInkHomePageProps> = ({
   onEnterCanvas,
+  onEnterStudio,
   onLoadPreset,
   theme,
   onToggleTheme,
@@ -67,6 +70,13 @@ export const SmartInkHomePage: React.FC<SmartInkHomePageProps> = ({
       title: "Infinite Research Whiteboard",
       description: "Launch a clean infinite canvas to draw freehand ink, pin papers & query live.",
       action: () => onEnterCanvas(),
+    },
+    {
+      id: 'studio',
+      icon: <FlaskConical className="w-5 h-5 text-lime-400" />,
+      title: "Simulation Studio",
+      description: "Describe any physics setup — watch it simulate with tunable parameters.",
+      action: () => onEnterStudio(),
     },
   ];
 

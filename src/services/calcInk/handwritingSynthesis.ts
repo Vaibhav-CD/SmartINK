@@ -631,6 +631,8 @@ export class HandwritingVectorSynthesizer {
             color,
             width,
             createdAt: Date.now() + i * 10 + g,
+            // Projected answers must never feed back into recognition.
+            synthetic: true,
           });
         }
       }

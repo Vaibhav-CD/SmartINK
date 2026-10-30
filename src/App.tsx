@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback, useRef } from 'react';
 import type { 
   ToolMode, 
   Point,
@@ -28,7 +28,9 @@ import { ConfirmationModal } from './components/ConfirmationModal';
 import { PdfService } from './services/pdf/pdfService';
 import { PdfReaderModal } from './components/PdfReaderModal';
 import type { ConversationContext } from './services/copilot/conversationAgent';
-import { extractWriteTopic, resolveWriteup } from './services/copilot/canvasWriter';
+import { resolveWriteup, type CanvasWriteup } from './services/copilot/canvasWriter';
+import { routeVoiceCommand } from './services/copilot/voiceCommand';
+import { TtsService } from './services/speech/ttsService';
 import { HandwritingVectorSynthesizer } from './services/calcInk/handwritingSynthesis';
 import { getStrokesBoundingBox } from './services/calcInk/coordinateTransform';
 
@@ -126,21 +128,66 @@ export function App() {
   });
   const [ttsEnabled, setTtsEnabled] = useState(true);
 
+  // Voice conversation loop state (refs so recognition callbacks never go stale)
+  const conversationActiveRef = useRef(false);
+  const recognitionRef = useRef<{ stop: () => void } | null>(null);
+  const speakingRef = useRef(false);
+  const listenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const canvasContextRef = useRef<ConversationContext>({});
+  const handleExecuteVoiceCommandRef = useRef<(command: string) => void>(() => {});
+  const lastSpokenRef = useRef<string>('');
+  const lastUtteranceRef = useRef<{ text: string; at: number }>({ text: '', at: 0 });
+
   const metaAI = MetaAIService.getInstance();
+
+  // Mirror canvas context for the voice loop; stop the mic on unmount.
+  useEffect(() => {
+    canvasContextRef.current = canvasContext;
+  }, [canvasContext]);
+
+  useEffect(() => () => {
+    conversationActiveRef.current = false;
+    if (listenTimerRef.current) clearTimeout(listenTimerRef.current);
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // Mic already stopped.
+    }
+    TtsService.stop();
+  }, []);
 
   // Save workspace state to localStorage on changes
   useEffect(() => {
     saveWorkspace(workspace);
   }, [workspace]);
 
-  // Text-to-Speech Helper
+  // Text-to-Speech Helper (fire-and-forget UI feedback)
   const speakText = useCallback((text: string) => {
-    if (!ttsEnabled || !('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.05;
-    utterance.pitch = 1.0;
-    window.speechSynthesis.speak(utterance);
+    if (!ttsEnabled) return;
+    TtsService.speak(text);
+  }, [ttsEnabled]);
+
+  // Conversation speech: stops the mic while replying, then calls onDone so
+  // the loop can resume listening. Honors the TTS mute toggle.
+  const speakReply = useCallback((text: string, onDone?: () => void) => {
+    lastSpokenRef.current = text;
+    if (!ttsEnabled) {
+      onDone?.();
+      return;
+    }
+    speakingRef.current = true;
+    setVoiceState((prev) => ({ ...prev, status: 'answering' }));
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // Mic already stopped.
+    }
+    const finished = () => {
+      speakingRef.current = false;
+      onDone?.();
+    };
+    const started = TtsService.speak(text, { onEnd: finished, onError: finished });
+    if (!started) finished();
   }, [ttsEnabled]);
 
   // Update active page content helper
@@ -633,13 +680,8 @@ export function App() {
   };
 
   // Voice command execution
-  // Voice "write X on screen": ink the write-up directly onto the canvas.
-  const handleWriteOnCanvas = useCallback(async (topic: string) => {
-    const writeup = await resolveWriteup(topic);
-    if (!writeup) {
-      speakText(`I couldn't find ${topic}. Try another topic.`);
-      return;
-    }
+  // Ink a write-up below the existing strokes (undoable, like any ink).
+  const inkWriteup = useCallback((writeup: CanvasWriteup) => {
     const box =
       activePage.strokes.length > 0
         ? getStrokesBoundingBox(activePage.strokes)
@@ -664,134 +706,274 @@ export function App() {
       ...page,
       strokes: [...page.strokes, ...newStrokes],
     }));
-    speakText(writeup.spoken);
-  }, [activePage.strokes, updateActivePage, speakText]);
+  }, [activePage.strokes, updateActivePage]);
 
-  const handleExecuteVoiceCommand = async (command: string) => {
-    setVoiceState((prev) => ({
-      ...prev,
-      transcript: command,
-      status: 'processing',
-    }));
-
-    // "Write X on screen" bypasses intent parsing and inks directly.
-    const writeTopic = extractWriteTopic(command);
-    if (writeTopic) {
-      await handleWriteOnCanvas(writeTopic);
-      setTimeout(() => {
-        setVoiceState((prev) => ({ ...prev, status: 'idle' }));
-      }, 1500);
+  // Voice "write X on screen": ink the write-up directly onto the canvas.
+  const handleWriteOnCanvas = useCallback(async (topic: string, onDone?: () => void) => {
+    const writeup = await resolveWriteup(topic);
+    if (!writeup) {
+      speakReply(`I couldn't find ${topic}. Try another topic.`, onDone);
       return;
     }
+    inkWriteup(writeup);
+    speakReply(writeup.spoken, onDone);
+  }, [inkWriteup, speakReply]);
 
-    const parsed = metaAI.parseVoiceIntent(command);
+  // Voice "write the answer/steps": ink the current canvas solution.
+  const handleWriteSolution = useCallback((onDone?: () => void) => {
+    const ctx = canvasContextRef.current;
+    const display = ctx.solutionDisplay || ctx.equationText;
+    if (!display) {
+      speakReply('There is nothing on the canvas to write yet.', onDone);
+      return;
+    }
+    inkWriteup({
+      title: ctx.equationText ?? 'Solution',
+      lines: [display],
+      spoken: `Written on the canvas: ${display.replace(/=/g, ' equals ')}.`,
+    });
+    speakReply(`Written on the canvas: ${display.replace(/=/g, ' equals ')}.`, onDone);
+  }, [inkWriteup, speakReply]);
 
-    if (parsed.intent === 'discover_proofs') {
-      const target = activePage.theorems[0];
-      if (target) {
-        await handleDiscoverProofs(target);
-      }
-    } else if (parsed.intent === 'socratic_hint') {
-      const target = activePage.theorems[0];
-      if (target) {
-        handleRequestSocraticHint(target);
-      }
-    } else if (parsed.intent === 'generate_image') {
-      const generated = await metaAI.generateOrFetchImage(command, { x: 280, y: 160 });
-      updateActivePage((page) => ({
-        ...page,
-        images: [...(page.images || []), generated],
-      }));
-      speakText(`Rendered high-resolution multimodal asset for ${generated.title}.`);
-    } else if (parsed.intent === 'explain_step') {
-      speakText("Notice that both sides describe the exact same total area, allowing direct term cancellation.");
-    } else if (parsed.intent === 'add_paper') {
-      handleAddPaper();
-    } else if (parsed.intent === 'general_knowledge') {
-      const gk = await metaAI.answerGeneralQuestion(command);
-      const newCard: TheoremItem = {
-        id: `gk-${Date.now()}`,
-        type: 'theorem',
-        title: gk.title,
-        statement: gk.answer,
-        latex: `\\text{${gk.title}}`,
-        position: { x: 320, y: 160 },
-        size: { width: 400, height: 260 },
-        proofs: [],
-      };
-      updateActivePage((page) => ({
-        ...page,
-        theorems: [...page.theorems, newCard],
-      }));
-      speakText(gk.spokenSummary);
-    } else if (parsed.intent === 'living_physics') {
-      const lower = command.toLowerCase();
-      const simType = lower.includes('spring')
-        ? 'spring'
-        : lower.includes('orbit') || lower.includes('planet')
-        ? 'orbit'
-        : lower.includes('projectile') || lower.includes('launch')
-        ? 'projectile'
-        : 'pendulum';
-      handleAddPhysicsSimulation(simType);
+  // Resume listening after a reply, or go idle when the conversation ended.
+  const resumeConversation = useCallback(() => {
+    if (conversationActiveRef.current) {
+      startListeningSoon();
     } else {
-      // Dictation fallback: pin unrecognized speech as a reviewable sticky.
-      const note: SocraticAnnotation = {
-        id: `voice-${Date.now()}`,
-        targetId: 'custom',
-        position: { x: 380, y: 350 },
-        question: command.length > 140 ? command.slice(0, 140) + '…' : command,
-        hint: 'Captured from voice dictation. Resolve after review.',
-      };
-      updateActivePage((page) => ({
-        ...page,
-        socraticHints: [...page.socraticHints, note],
-      }));
-      speakText(`Noted: ${command}`);
+      setVoiceState((prev) => ({ ...prev, status: 'idle', isListening: false }));
     }
+  }, []);
 
-    setTimeout(() => {
-      setVoiceState((prev) => ({ ...prev, status: 'idle' }));
-    }, 1500);
-  };
+  // Resume once fire-and-forget UI speech has finished playing.
+  const resumeWhenQuiet = useCallback(() => {
+    if (!conversationActiveRef.current) {
+      setVoiceState((prev) => ({ ...prev, status: 'idle', isListening: false }));
+      return;
+    }
+    if (TtsService.getState() === 'playing') {
+      setTimeout(() => resumeWhenQuiet(), 400);
+      return;
+    }
+    startListeningSoon();
+  }, []);
 
-  // Web Speech API mic toggle
-  const handleToggleVoiceListen = () => {
-    if (voiceState.isListening) {
-      setVoiceState((prev) => ({ ...prev, isListening: false, status: 'idle' }));
+  const handleExecuteVoiceCommand = useCallback(async (command: string) => {
+    const text = command.trim();
+    if (!text) {
+      resumeConversation();
+      return;
+    }
+    setVoiceState((prev) => ({ ...prev, status: 'processing' }));
+
+    const route = await routeVoiceCommand(text, canvasContextRef.current);
+
+    if (route.action === 'undo') {
+      if (undoStack.length === 0) {
+        speakReply('Nothing to undo.', resumeConversation);
+      } else {
+        handleUndo();
+        speakReply('Undone.', resumeConversation);
+      }
       return;
     }
 
+    if (route.action === 'repeat') {
+      speakReply(
+        lastSpokenRef.current || 'I have not said anything yet.',
+        resumeConversation
+      );
+      return;
+    }
+
+    if (route.action === 'write') {
+      await handleWriteOnCanvas(route.topic, resumeConversation);
+      return;
+    }
+
+    if (route.action === 'write_solution') {
+      handleWriteSolution(resumeConversation);
+      return;
+    }
+
+    if (route.action === 'device') {
+      const cmd = route.command;
+      if (route.intent === 'discover_proofs') {
+        const target = activePage.theorems[0];
+        if (target) {
+          await handleDiscoverProofs(target);
+        } else {
+          speakText('Pin a theorem first, then ask for proofs.');
+        }
+      } else if (route.intent === 'socratic_hint') {
+        const target = activePage.theorems[0];
+        if (target) {
+          handleRequestSocraticHint(target);
+        } else {
+          speakText('Pin a theorem first, then ask for a hint.');
+        }
+      } else if (route.intent === 'generate_image') {
+        const generated = await metaAI.generateOrFetchImage(cmd, { x: 280, y: 160 });
+        updateActivePage((page) => ({
+          ...page,
+          images: [...(page.images || []), generated],
+        }));
+        speakText(`Rendered high-resolution multimodal asset for ${generated.title}.`);
+      } else if (route.intent === 'add_paper') {
+        handleAddPaper();
+      } else if (route.intent === 'living_physics') {
+        const lower = cmd.toLowerCase();
+        const simType = lower.includes('spring')
+          ? 'spring'
+          : lower.includes('orbit') || lower.includes('planet')
+          ? 'orbit'
+          : lower.includes('projectile') || lower.includes('launch')
+          ? 'projectile'
+          : 'pendulum';
+        handleAddPhysicsSimulation(simType);
+      }
+      resumeWhenQuiet();
+      return;
+    }
+
+    // Conversation: spoken reply only — never pinned or transcribed on screen.
+    // A plot reply executes because "plot X" explicitly asks for a graph.
+    const { reply } = route;
+    if (reply.kind === 'plot' && reply.functionBody) {
+      handleAddPlot(reply.functionBody);
+    }
+    speakReply(reply.spoken, resumeConversation);
+  }, [
+    // Note: handleAddPaper is intentionally omitted: it is declared below and
+    // reads no render state, so the deferred call inside is always safe.
+    activePage.theorems,
+    handleAddPlot,
+    handleDiscoverProofs,
+    handleRequestSocraticHint,
+    handleUndo,
+    handleWriteOnCanvas,
+    handleWriteSolution,
+    metaAI,
+    resumeConversation,
+    resumeWhenQuiet,
+    speakReply,
+    speakText,
+    undoStack,
+    updateActivePage,
+  ]);
+
+  // Latest handler for recognition callbacks (avoids stale closures).
+  handleExecuteVoiceCommandRef.current = handleExecuteVoiceCommand;
+
+  // Continuous conversation loop: Chrome ends the stream on silence, so
+  // restart while the conversation is active and the copilot is not speaking.
+  const startListening = useCallback(() => {
+    if (!conversationActiveRef.current || speakingRef.current) return;
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // Previous stream already stopped.
+    }
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+
+    recognition.onresult = (event: any) => {
+      const finals: string[] = [];
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          finals.push(event.results[i][0].transcript);
+        }
+      }
+      if (finals.length > 0) {
+        // Dedupe rapid repeats from stream restarts (same utterance twice).
+        const heardKey = finals.join(' ').trim().toLowerCase().replace(/\s+/g, ' ');
+        const now = Date.now();
+        if (
+          heardKey &&
+          heardKey === lastUtteranceRef.current.text &&
+          now - lastUtteranceRef.current.at < 2500
+        ) {
+          return;
+        }
+        lastUtteranceRef.current = { text: heardKey, at: now };
+        try {
+          recognition.stop();
+        } catch {
+          // Stream already stopped.
+        }
+        handleExecuteVoiceCommandRef.current(finals.join(' '));
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      if (event?.error === 'not-allowed' || event?.error === 'service-not-allowed') {
+        stopConversation();
+      }
+    };
+
+    recognition.onend = () => {
+      if (conversationActiveRef.current && !speakingRef.current) {
+        startListeningSoon();
+      }
+    };
+
+    recognitionRef.current = recognition;
     setVoiceState((prev) => ({ ...prev, isListening: true, status: 'listening' }));
+    try {
+      recognition.start();
+    } catch {
+      // Stream already started.
+    }
+  }, []);
+
+  const startListeningSoon = useCallback(() => {
+    if (listenTimerRef.current) clearTimeout(listenTimerRef.current);
+    listenTimerRef.current = setTimeout(() => {
+      startListening();
+    }, 250);
+  }, [startListening]);
+
+  const stopConversation = useCallback(() => {
+    conversationActiveRef.current = false;
+    speakingRef.current = false;
+    if (listenTimerRef.current) {
+      clearTimeout(listenTimerRef.current);
+      listenTimerRef.current = null;
+    }
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // Mic already stopped.
+    }
+    recognitionRef.current = null;
+    TtsService.stop();
+    setVoiceState((prev) => ({ ...prev, isListening: false, status: 'idle' }));
+  }, []);
+
+  // Web Speech API mic toggle: starts/stops the continuous conversation.
+  const handleToggleVoiceListen = () => {
+    if (conversationActiveRef.current) {
+      stopConversation();
+      return;
+    }
 
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = 'en-US';
-
-      recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        handleExecuteVoiceCommand(transcript);
-        setVoiceState((prev) => ({ ...prev, isListening: false }));
-      };
-
-      recognition.onerror = () => {
-        setVoiceState((prev) => ({ ...prev, isListening: false, status: 'idle' }));
-      };
-
-      recognition.onend = () => {
-        setVoiceState((prev) => ({ ...prev, isListening: false, status: 'idle' }));
-      };
-
-      recognition.start();
-    } else {
+    if (!SpeechRecognition) {
+      // Demo fallback without mic support: run one sample command by voice.
+      setVoiceState((prev) => ({ ...prev, status: 'processing' }));
       setTimeout(() => {
-        handleExecuteVoiceCommand("Show me 3 proofs for the Pythagorean Theorem");
-        setVoiceState((prev) => ({ ...prev, isListening: false }));
-      }, 2500);
+        handleExecuteVoiceCommand('Show me 3 proofs for the Pythagorean Theorem');
+      }, 1200);
+      return;
     }
+
+    conversationActiveRef.current = true;
+    speakReply('Listening. Ask me anything, or say write to put it on the screen.', () => {
+      startListening();
+    });
   };
 
   // Add a blank theorem stamp
@@ -967,7 +1149,7 @@ export function App() {
         onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
         onLoadPreset={handleLoadPresetScenario}
         isListening={voiceState.isListening}
-        voiceTranscript={voiceState.transcript}
+        voiceStatus={voiceState.status}
         onToggleVoice={handleToggleVoiceListen}
         ttsEnabled={ttsEnabled}
         onToggleTTS={() => setTtsEnabled(!ttsEnabled)}

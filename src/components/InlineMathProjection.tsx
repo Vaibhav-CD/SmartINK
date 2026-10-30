@@ -28,6 +28,7 @@ export const InlineMathProjection: React.FC<InlineMathProjectionProps> = ({
 
   // Play subtle futuristic chime only when answer first appears or changes value
   useEffect(() => {
+    if (equation.hasUncertainGlyph) return;
     if (!equation.evaluation.display || equation.evaluation.display === lastSoundDisplayRef.current) {
       return;
     }
@@ -63,6 +64,39 @@ export const InlineMathProjection: React.FC<InlineMathProjectionProps> = ({
   const isUndefined = equation.evaluation.isUndefined;
   const isAssignment = equation.evaluation.isAssignment;
   const isPlottable = equation.isPlottableFunction;
+
+  // Uncertain ink: honest "couldn't read this" state, never a wrong answer.
+  if (equation.hasUncertainGlyph) {
+    const alts = equation.uncertainAlternatives?.filter(Boolean) ?? [];
+    return (
+      <div
+        style={{
+          transform: `translate(${equation.anchorPosition.x}px, ${equation.anchorPosition.y}px)`,
+        }}
+        className="absolute z-20 pointer-events-auto select-none flex items-center gap-1.5 animate-in fade-in zoom-in-90 duration-200"
+      >
+        <div
+          className="flex items-center gap-2 px-3 py-1.5 rounded-2xl backdrop-blur-xl border border-slate-400/70 bg-slate-100/90 dark:bg-slate-900/90 text-slate-600 dark:text-slate-300 shadow-lg"
+          title={
+            alts.length > 0
+              ? `Unrecognized glyph — maybe ${alts.slice(0, 3).join(', ')}? Rewrite it a bit larger.`
+              : 'Unrecognized glyph — rewrite it a bit larger.'
+          }
+        >
+          <AlertTriangle className="w-4 h-4 text-slate-400" />
+          <span className="text-xs font-mono text-slate-400 border-r border-slate-600 pr-2 hidden sm:inline">
+            {equation.expressionText}
+          </span>
+          <span className="text-[11px] font-semibold">Unrecognized glyph</span>
+          {alts.length > 0 && (
+            <span className="text-[11px] font-mono text-slate-400">
+              maybe {alts.slice(0, 3).join(' / ')}?
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

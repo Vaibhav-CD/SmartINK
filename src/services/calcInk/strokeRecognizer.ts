@@ -11,6 +11,13 @@ export interface HandwritingStyle {
   color: string;
 }
 
+/**
+ * Minimum glyph confidence for a character to enter an expression.
+ * Below this, the glyph becomes '?' and the equation is flagged
+ * unrecognized instead of computing a confidently wrong answer.
+ */
+export const GLYPH_CONFIDENCE_THRESHOLD = 0.6;
+
 export interface ProjectedEquation {
   id: string;
   strokeIds: string[];
@@ -19,6 +26,10 @@ export interface ProjectedEquation {
   anchorPosition: Point;
   boundingBox: BoundingBox;
   timestamp: number;
+  /** True when at least one glyph fell below the confidence threshold. */
+  hasUncertainGlyph?: boolean;
+  /** Top template alternatives for uncertain glyphs (for hints/UI). */
+  uncertainAlternatives?: string[];
   /** If the expression is a plottable function of x (e.g. x^2+1, sin(x)) */
   isPlottableFunction: boolean;
   /** The function body suitable for InteractiveFunctionPlot (e.g. "x^2+1") */
@@ -358,6 +369,10 @@ export class OnDeviceStrokeRecognizer {
     if (matchDivideSign(strokes)) return { char: '/', confidence: 0.93 };
     const geometric = this.classifyGlyphGeometric(strokes);
     if (strokes.length === 0) return geometric;
+    // Skip the full template scan when geometry is already certain: a
+    // symbol override would have to beat that confidence anyway, and
+    // this scan runs per glyph on every canvas re-scan.
+    if (geometric.confidence >= 0.97) return geometric;
     const ranked = PointCloudRecognizer.classifyTopN(
       strokes.map((s) => s.points),
       3
@@ -376,7 +391,34 @@ export class OnDeviceStrokeRecognizer {
     return geometric;
   }
 
+  /**
+   * Agreement-gated classification. Structural (ladder) certainty ≥ 0.9
+   * wins outright. Otherwise the point-cloud winner must agree with the
+   * ladder or score ≥ 0.9 on its own; disagreement caps confidence at
+   * 0.55 so the expression gate marks the glyph '?' instead of emitting
+   * a confidently wrong character (measured: raw cloud scores cluster
+   * at 0.78–0.92 even for random scribbles, so score alone cannot gate).
+   */
   private static classifyGlyphGeometric(strokes: Stroke[]): { char: string; confidence: number } {
+    const ladder = this.classifyGlyphLadder(strokes);
+    if (ladder.confidence >= 0.9) return ladder;
+    const cloudMatch = PointCloudRecognizer.classify(strokes.map((s) => s.points));
+    if (cloudMatch.score >= 0.7) {
+      if (cloudMatch.char === ladder.char) {
+        return {
+          char: cloudMatch.char,
+          confidence: Math.max(cloudMatch.score, ladder.confidence),
+        };
+      }
+      if (cloudMatch.score >= 0.9) {
+        return { char: cloudMatch.char, confidence: cloudMatch.score };
+      }
+      return { char: cloudMatch.char, confidence: 0.55 };
+    }
+    return ladder;
+  }
+
+  private static classifyGlyphLadder(strokes: Stroke[]): { char: string; confidence: number } {
     if (strokes.length === 0) return { char: '', confidence: 0 };
 
     const bbox = getStrokesBoundingBox(strokes);
@@ -457,16 +499,26 @@ export class OnDeviceStrokeRecognizer {
         return { char: ')', confidence: 0.96 };
       }
 
-      // Straight vertical line -> '1'
+      // Straight vertical line -> '1' (an S-curve like '∫' deviates from
+      // the start-end line in opposite directions and must fall through
+      // to template matching instead of being claimed here)
       if (Math.abs(arcDepth) <= width * 0.35 || width < 10) {
-        return { char: '1', confidence: 0.98 };
+        const lineLen = Math.hypot(end.x - start.x, end.y - start.y) || 1;
+        let maxDev = 0;
+        for (const p of raw) {
+          const dev =
+            Math.abs(
+              (end.y - start.y) * p.x -
+                (end.x - start.x) * p.y +
+                end.x * start.y -
+                end.y * start.x
+            ) / lineLen;
+          if (dev > maxDev) maxDev = dev;
+        }
+        if (maxDev <= Math.max(5, width * 0.38)) {
+          return { char: '1', confidence: 0.98 };
+        }
       }
-    }
-
-    // Primary: High-Precision $P/$Q Point-Cloud Matching across natural handwriting
-    const cloudMatch = PointCloudRecognizer.classify(strokes.map(s => s.points));
-    if (cloudMatch.score >= 0.70) {
-      return { char: cloudMatch.char, confidence: cloudMatch.score };
     }
 
     // Multi-stroke fallback geometric heuristics (2 or 3 strokes)
@@ -546,11 +598,12 @@ export class OnDeviceStrokeRecognizer {
     const curvature = this.computeCurvature(pts);
     const xReversals = this.countXReversals(pts);
 
-    // Check for self-intersections
+    // Check for self-intersections (full scan with a segment gap so
+    // mid-stroke crossings, e.g. the waist of an 8, are not missed)
     let hasSelfIntersection = false;
     let intersectY = 0;
-    for (let i = 0; i < 16; i++) {
-      for (let j = 18; j < pts.length - 1; j++) {
+    for (let i = 0; i < pts.length - 1; i++) {
+      for (let j = i + 8; j < pts.length - 1; j++) {
         if (this.segmentsIntersect(pts[i], pts[i + 1], pts[j], pts[j + 1])) {
           hasSelfIntersection = true;
           intersectY = (pts[i].y + pts[j].y) / 2;
@@ -597,7 +650,9 @@ export class OnDeviceStrokeRecognizer {
       startEndDist > 0.35 &&
       height > 12 && width > 12
     ) {
-      return { char: 'x', confidence: 0.93 };
+      // Below the 0.9 direct-win line: digits like 2/3 share this shape,
+      // so the point-cloud result arbitrates letter-vs-digit.
+      return { char: 'x', confidence: 0.87 };
     }
 
     // Letter 'y' (single stroke: two diagonal lines meeting at a center point, 
@@ -618,7 +673,7 @@ export class OnDeviceStrokeRecognizer {
       const midIdx = Math.floor(pts.length * 0.4);
       const midPt = pts[midIdx];
       if (midPt.y > 0.3 && midPt.y < 0.7) {
-        return { char: 'y', confidence: 0.90 };
+        return { char: 'y', confidence: 0.88 };
       }
     }
 
@@ -743,8 +798,8 @@ export class OnDeviceStrokeRecognizer {
       return { char: '6', confidence: 0.82 };
     }
 
-    // Default fallback to best estimate
-    return { char: '1', confidence: 0.75 };
+    // Default fallback: honest low confidence so the gate marks it '?'.
+    return { char: '1', confidence: 0.55 };
   }
 
   /**
@@ -835,26 +890,51 @@ export class OnDeviceStrokeRecognizer {
 
     const equations: ProjectedEquation[] = [];
 
+    // Bounding boxes are computed once per stroke and cluster boxes are
+    // maintained incrementally — recomputing them inside the clustering
+    // loops made large pages degrade cubically.
+    const boxCache = new Map<string, BoundingBox | null>();
+    for (const s of userStrokes) {
+      boxCache.set(s.id, getStrokesBoundingBox([s]));
+    }
+    const unionBox = (a: BoundingBox, b: BoundingBox): BoundingBox => {
+      const minX = Math.min(a.minX, b.minX);
+      const minY = Math.min(a.minY, b.minY);
+      const maxX = Math.max(a.maxX, b.maxX);
+      const maxY = Math.max(a.maxY, b.maxY);
+      return {
+        minX,
+        minY,
+        maxX,
+        maxY,
+        width: maxX - minX,
+        height: maxY - minY,
+        centerX: (minX + maxX) / 2,
+        centerY: (minY + maxY) / 2,
+      };
+    };
+
     // 1. Sort all strokes from left to right by minX
     const sortedStrokes = [...userStrokes].sort((a, b) => {
-      const ba = getStrokesBoundingBox([a]);
-      const bb = getStrokesBoundingBox([b]);
-      return (ba?.minX || 0) - (bb?.minX || 0);
+      return (boxCache.get(a.id)?.minX || 0) - (boxCache.get(b.id)?.minX || 0);
     });
 
     // 2. Spatial Clustering: Group strokes into distinct, independent equation clusters
-    const clusters: Stroke[][] = [];
+    interface ClusterRec {
+      strokes: Stroke[];
+      box: BoundingBox;
+    }
+    const recs: ClusterRec[] = [];
 
     for (const stroke of sortedStrokes) {
-      const sBox = getStrokesBoundingBox([stroke]);
+      const sBox = boxCache.get(stroke.id);
       if (!sBox) continue;
 
-      let matchedCluster: Stroke[] | null = null;
+      let matched: ClusterRec | null = null;
       let bestDist = Infinity;
 
-      for (const cluster of clusters) {
-        const cBox = getStrokesBoundingBox(cluster);
-        if (!cBox) continue;
+      for (const rec of recs) {
+        const cBox = rec.box;
 
         const vDiff = Math.abs(sBox.centerY - cBox.centerY);
         const hGap = sBox.minX - cBox.maxX;
@@ -868,24 +948,28 @@ export class OnDeviceStrokeRecognizer {
           const dist = Math.abs(hGap) + vDiff;
           if (dist < bestDist) {
             bestDist = dist;
-            matchedCluster = cluster;
+            matched = rec;
           }
         }
       }
 
-      if (matchedCluster) {
-        matchedCluster.push(stroke);
+      if (matched) {
+        matched.strokes.push(stroke);
+        matched.box = unionBox(matched.box, sBox);
       } else {
-        clusters.push([stroke]);
+        recs.push({ strokes: [stroke], box: sBox });
       }
     }
 
     // 3. Sort clusters from top-to-bottom so variable assignments propagate down subsequent lines
-    clusters.sort((ca, cb) => {
-      const ba = getStrokesBoundingBox(ca);
-      const bb = getStrokesBoundingBox(cb);
-      return (ba?.minY || 0) - (bb?.minY || 0);
-    });
+    recs.sort((ra, rb) => ra.box.minY - rb.box.minY);
+    const clusters: Stroke[][] = recs.map((r) => r.strokes);
+    const clusterBoxByFirstId = new Map<string, BoundingBox>();
+    for (const rec of recs) {
+      if (rec.strokes.length > 0) {
+        clusterBoxByFirstId.set(rec.strokes[0].id, rec.box);
+      }
+    }
 
     // 4. Process each equation cluster independently
     for (const cluster of clusters) {
@@ -899,7 +983,8 @@ export class OnDeviceStrokeRecognizer {
     const cleanedExpr = parsed.expressionStr.trim();
     if (!cleanedExpr) continue;
 
-    const clusterBox = getStrokesBoundingBox(cluster);
+    const clusterBox =
+      clusterBoxByFirstId.get(cluster[0].id) ?? getStrokesBoundingBox(cluster);
     if (!clusterBox) continue;
 
     const hasMathOperators = /[+\-*×/÷^%]/.test(cleanedExpr);
@@ -908,7 +993,33 @@ export class OnDeviceStrokeRecognizer {
     const hasMathFunctions = /(sin|cos|tan|sqrt|log|ln|abs|exp|pi)/i.test(cleanedExpr);
 
     if ((hasNumbers || hasVariables) && (hasMathOperators || cleanedExpr.includes('=') || hasMathFunctions || parsed.isPlottable)) {
-      if (parsed.isPlottable) {
+      if (cleanedExpr.includes('?')) {
+        // Confidence gate: surface uncertainty, never a wrong answer.
+        equations.push({
+          id: `eq-${cluster[0].id}`,
+          strokeIds: cluster.map((s) => s.id),
+          expressionText: cleanedExpr,
+          evaluation: {
+            success: false,
+            rawExpression: cleanedExpr,
+            sanitizedExpression: '',
+            value: null,
+            display: 'Unrecognized glyph',
+            isAssignment: false,
+            error: 'Uncertain glyph recognition',
+          },
+          anchorPosition: {
+            x: clusterBox.maxX + 18,
+            y: clusterBox.centerY - 14,
+          },
+          boundingBox: clusterBox,
+          timestamp: Date.now(),
+          isPlottableFunction: false,
+          style,
+          hasUncertainGlyph: true,
+          uncertainAlternatives: parsed.uncertainAlternatives,
+        });
+      } else if (parsed.isPlottable) {
         const evalAt0 = MathParser.evaluate(parsed.functionBody, { x: 0 });
         const anchorPosition: Point = {
           x: clusterBox.maxX + 18,
@@ -1056,6 +1167,7 @@ public static parseClusterToExpression(cluster: Stroke[], glyphOverrides?: Map<s
   expressionStr: string;
   isPlottable: boolean;
   functionBody: string;
+  uncertainAlternatives: string[];
 } {
   // Check for horizontal fraction division bar
   for (const stroke of cluster) {
@@ -1076,8 +1188,10 @@ public static parseClusterToExpression(cluster: Stroke[], glyphOverrides?: Map<s
       });
 
       if (above.length > 0 && below.length > 0) {
-        const numExpr = this.parseSimpleGlyphSequence(above, glyphOverrides);
-        const denExpr = this.parseSimpleGlyphSequence(below, glyphOverrides);
+        const numParsed = this.parseSimpleGlyphSequence(above, glyphOverrides);
+        const denParsed = this.parseSimpleGlyphSequence(below, glyphOverrides);
+        const numExpr = numParsed.text;
+        const denExpr = denParsed.text;
 
         const fracIds = new Set([stroke.id, ...above.map((s) => s.id), ...below.map((s) => s.id)]);
         const otherStrokes = cluster.filter((s) => !fracIds.has(s.id));
@@ -1091,8 +1205,10 @@ public static parseClusterToExpression(cluster: Stroke[], glyphOverrides?: Map<s
           return sb && sb.minX > b.maxX;
         });
 
-        const leftExpr = leftStrokes.length > 0 ? this.parseSimpleGlyphSequence(leftStrokes, glyphOverrides) : '';
-        const rightExpr = rightStrokes.length > 0 ? this.parseSimpleGlyphSequence(rightStrokes, glyphOverrides) : '';
+        const leftParsed = leftStrokes.length > 0 ? this.parseSimpleGlyphSequence(leftStrokes, glyphOverrides) : { text: '', uncertainAlts: [] as string[] };
+        const rightParsed = rightStrokes.length > 0 ? this.parseSimpleGlyphSequence(rightStrokes, glyphOverrides) : { text: '', uncertainAlts: [] as string[] };
+        const leftExpr = leftParsed.text;
+        const rightExpr = rightParsed.text;
 
         // A bar with single dots above and below is a division sign (÷),
         // not a fraction — emit a plain division operator.
@@ -1105,18 +1221,25 @@ public static parseClusterToExpression(cluster: Stroke[], glyphOverrides?: Map<s
           expressionStr: fullExpr,
           isPlottable: plotCheck.isPlottable,
           functionBody: plotCheck.functionBody,
+          uncertainAlternatives: [
+            ...numParsed.uncertainAlts,
+            ...denParsed.uncertainAlts,
+            ...leftParsed.uncertainAlts,
+            ...rightParsed.uncertainAlts,
+          ],
         };
       }
     }
   }
 
   // Standard linear sequence
-  const fullExpr = this.parseSimpleGlyphSequence(cluster, glyphOverrides);
-  const plotCheck = this.isPlottableExpression(fullExpr);
+  const full = this.parseSimpleGlyphSequence(cluster, glyphOverrides);
+  const plotCheck = this.isPlottableExpression(full.text);
   return {
-    expressionStr: fullExpr,
+    expressionStr: full.text,
     isPlottable: plotCheck.isPlottable,
     functionBody: plotCheck.functionBody,
+    uncertainAlternatives: full.uncertainAlts,
   };
 }
 
@@ -1124,10 +1247,18 @@ public static parseClusterToExpression(cluster: Stroke[], glyphOverrides?: Map<s
  * Parses simple glyph sequences with connected-component clustering,
  * superscript detection, contextual disambiguation, and natural word spacing
  */
-private static parseSimpleGlyphSequence(strokes: Stroke[], glyphOverrides?: Map<string, string>): string {
-  if (strokes.length === 0) return '';
+private static parseSimpleGlyphSequence(
+  strokes: Stroke[],
+  glyphOverrides?: Map<string, string>
+): { text: string; uncertainAlts: string[] } {
+  if (strokes.length === 0) return { text: '', uncertainAlts: [] };
   const glyphs = this.clusterStrokesIntoGlyphs(strokes);
-  const glyphResults: { char: string; confidence: number; box: BoundingBox }[] = [];
+  const glyphResults: {
+    char: string;
+    confidence: number;
+    box: BoundingBox;
+    alts: string[];
+  }[] = [];
 
   for (const g of glyphs) {
     const override = glyphOverrides?.get(glyphSignature(g));
@@ -1137,11 +1268,20 @@ private static parseSimpleGlyphSequence(strokes: Stroke[], glyphOverrides?: Map<
         : this.classifyGlyph(g);
     const gBox = getStrokesBoundingBox(g);
     if (gBox) {
-      glyphResults.push({ ...classification, box: gBox });
+      const alts =
+        classification.confidence < GLYPH_CONFIDENCE_THRESHOLD
+          ? PointCloudRecognizer.classifyTopN(
+              g.map((s) => s.points),
+              3
+            )
+              .map((r) => r.char)
+              .filter((c) => c !== classification.char)
+          : [];
+      glyphResults.push({ ...classification, box: gBox, alts });
     }
   }
 
-  if (glyphResults.length === 0) return '';
+  if (glyphResults.length === 0) return { text: '', uncertainAlts: [] };
 
   // Compute average character width to determine word spacing gaps
   const avgCharWidth =
@@ -1150,6 +1290,11 @@ private static parseSimpleGlyphSequence(strokes: Stroke[], glyphOverrides?: Map<
   // First pass: Contextual disambiguation for numbers, operators, and math tokens
   const disambiguated: string[] = [];
   for (let gi = 0; gi < glyphResults.length; gi++) {
+    // Confidence gate: uncertain ink never becomes a character.
+    if (glyphResults[gi].confidence < GLYPH_CONFIDENCE_THRESHOLD) {
+      disambiguated.push('?');
+      continue;
+    }
     let char = glyphResults[gi].char;
     const prevChar = gi > 0 ? glyphResults[gi - 1].char : '';
     const nextChar = gi < glyphResults.length - 1 ? glyphResults[gi + 1].char : '';
@@ -1200,8 +1345,12 @@ private static parseSimpleGlyphSequence(strokes: Stroke[], glyphOverrides?: Map<
     }
 
     // '=' is never superscript content ('^=' cannot evaluate); a raised
-    // equals sign is still an equals sign.
-    if (char !== '=' && this.isSuperscript(current.box, prev?.box || null, next?.box || null)) {
+    // equals sign is still an equals sign. '?' is never superscript either.
+    if (
+      char !== '=' &&
+      char !== '?' &&
+      this.isSuperscript(current.box, prev?.box || null, next?.box || null)
+    ) {
       expressionStr += '^' + char;
     } else {
       expressionStr += char;
@@ -1219,7 +1368,14 @@ private static parseSimpleGlyphSequence(strokes: Stroke[], glyphOverrides?: Map<
     .replace(/sqrt([a-zA-Z0-9])/g, 'sqrt($1)')
     .replace(/\b(sin|cos|tan|sqrt|log|ln)\s+([a-zA-Z0-9]+)/gi, '$1($2)');
 
-  return expressionStr;
+  const uncertainAlts = [
+    ...new Set(
+      glyphResults
+        .filter((g) => g.confidence < GLYPH_CONFIDENCE_THRESHOLD)
+        .flatMap((g) => g.alts)
+    ),
+  ];
+  return { text: expressionStr, uncertainAlts };
 }
 
 /**
@@ -1240,6 +1396,7 @@ public static recognizeStrokeGroup(strokes: Stroke[]): ProjectedEquation | null 
   const parsed = this.parseClusterToExpression(userStrokes);
   const cleanedExpr = parsed.expressionStr.trim();
   if (!cleanedExpr) return null;
+  if (cleanedExpr.includes('?')) return null; // Uncertain glyph: no solve.
 
   // Check if plottable function
   if (parsed.isPlottable) {

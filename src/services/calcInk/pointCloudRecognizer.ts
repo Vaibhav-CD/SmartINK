@@ -813,6 +813,12 @@ export class PointCloudRecognizer {
       { x: 35, y: 85 }, { x: 65, y: 85 }
     ]);
 
+    // Letter 'J' (top bar plus stem with a bottom-left hook)
+    this.addTemplate('letter_J', 'J', [
+      { x: 25, y: 15 }, { x: 75, y: 15 },
+      { x: 60, y: 15 }, { x: 60, y: 62 }, { x: 50, y: 80 }, { x: 32, y: 82 }, { x: 22, y: 70 }
+    ]);
+
     // Letter 'K'
     this.addTemplate('letter_K', 'K', [
       { x: 25, y: 15 }, { x: 25, y: 85 },
@@ -838,6 +844,12 @@ export class PointCloudRecognizer {
     this.addTemplate('letter_P', 'P', [
       { x: 25, y: 15 }, { x: 25, y: 85 },
       { x: 25, y: 15 }, { x: 65, y: 18 }, { x: 75, y: 35 }, { x: 65, y: 52 }, { x: 25, y: 52 }
+    ]);
+
+    // Letter 'Q' (closed bowl plus a lower-right tail)
+    this.addTemplate('letter_Q', 'Q', [
+      ...pts0,
+      { x: 66, y: 64 }, { x: 78, y: 78 }, { x: 90, y: 92 }
     ]);
 
     // Letter 'R'
@@ -889,5 +901,49 @@ export class PointCloudRecognizer {
     this.addTemplate('letter_Z', 'Z', [
       { x: 20, y: 18 }, { x: 80, y: 18 }, { x: 25, y: 85 }, { x: 80, y: 85 }
     ]);
+
+    // Synthetic jitter variants for confusable glyphs (1/7, 6/8, 5/s, 2/z):
+    // rotated and scaled copies widen the match basin for natural variation.
+    const circlePts = (cx: number, cy: number, rx: number, ry: number): Point[] => {
+      const pts: Point[] = [];
+      for (let a = 0; a <= Math.PI * 2; a += 0.35) {
+        pts.push({ x: Math.cos(a) * rx + cx, y: Math.sin(a) * ry + cy });
+      }
+      return pts;
+    };
+    const jitter = (pts: Point[], deg: number, scale: number): Point[] => {
+      const rad = (deg * Math.PI) / 180;
+      const cos = Math.cos(rad);
+      const sin = Math.sin(rad);
+      return pts.map((p) => {
+        const dx = (p.x - 50) * scale;
+        const dy = (p.y - 50) * scale;
+        return { x: 50 + dx * cos - dy * sin, y: 50 + dx * sin + dy * cos };
+      });
+    };
+    const jitterBases: Array<[string, string, Point[]]> = [
+      ['digit_1_slanted', '1', [{ x: 58, y: 15 }, { x: 52, y: 50 }, { x: 46, y: 85 }]],
+      ['digit_7_flagged', '7', [{ x: 22, y: 16 }, { x: 78, y: 16 }, { x: 52, y: 85 }]],
+      ['digit_8_stacked', '8', [...circlePts(50, 30, 20, 17), ...circlePts(50, 68, 25, 20)]],
+      ['digit_6_loop', '6', [{ x: 62, y: 12 }, { x: 40, y: 26 }, { x: 27, y: 45 }, ...circlePts(50, 66, 25, 21)]],
+      ['digit_5_angular', '5', [
+        { x: 72, y: 16 }, { x: 30, y: 16 }, { x: 28, y: 46 },
+        { x: 58, y: 42 }, { x: 74, y: 58 }, { x: 66, y: 80 }, { x: 34, y: 86 },
+      ]],
+      ['digit_2_flat', '2', [
+        { x: 26, y: 30 }, { x: 44, y: 15 }, { x: 68, y: 20 }, { x: 72, y: 38 },
+        { x: 30, y: 82 }, { x: 76, y: 84 },
+      ]],
+      ['letter_s_tall', 's', [
+        { x: 72, y: 24 }, { x: 44, y: 14 }, { x: 26, y: 34 },
+        { x: 70, y: 62 }, { x: 58, y: 84 }, { x: 26, y: 76 },
+      ]],
+    ];
+    for (const [name, char, pts] of jitterBases) {
+      this.addTemplate(name, char, pts);
+      this.addTemplate(`${name}_cw`, char, jitter(pts, 9, 1));
+      this.addTemplate(`${name}_ccw`, char, jitter(pts, -9, 1));
+      this.addTemplate(`${name}_small`, char, jitter(pts, 0, 0.85));
+    }
   }
 }

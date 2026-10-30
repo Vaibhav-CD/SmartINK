@@ -6,6 +6,8 @@
  * spoken phrasing per step for the voice tutor. 100% client-side, no eval().
  */
 
+import { formatNumber as formatMathNumber } from './formatNumber';
+
 export interface SolutionStep {
   /** Written working, e.g. "3 * 4 = 12". */
   expression: string;
@@ -38,11 +40,17 @@ const FUNCTIONS: Record<string, (x: number) => number> = {
   sin: Math.sin,
   cos: Math.cos,
   tan: Math.tan,
+  asin: Math.asin,
+  acos: Math.acos,
+  atan: Math.atan,
   sqrt: Math.sqrt,
   abs: Math.abs,
   ln: Math.log,
   log: Math.log10,
   exp: Math.exp,
+  floor: Math.floor,
+  ceil: Math.ceil,
+  round: Math.round,
 };
 
 function tokenize(input: string): Token[] | null {
@@ -107,11 +115,7 @@ function tokenize(input: string): Token[] | null {
 }
 
 export function formatNumber(value: number): string {
-  if (!isFinite(value)) return 'Undefined';
-  if (Number.isInteger(value)) return String(value);
-  const rounded = Math.round(value * 10000) / 10000;
-  if (Number.isInteger(rounded)) return String(rounded);
-  return String(rounded);
+  return formatMathNumber(value);
 }
 
 function spokenOp(op: string): string {
@@ -223,12 +227,13 @@ class StepParser {
   }
 
   private parseFactor(): Linear {
-    let left = this.parseUnary();
+    const left = this.parseUnary();
     const t = this.peek();
     if (t.type === 'op' && t.op === '^') {
       this.advance();
-      const right = this.parseUnary();
-      left = this.apply('^', left, right);
+      // Right-associative: 2^3^2 parses as 2^(3^2).
+      const right = this.parseFactor();
+      return this.apply('^', left, right);
     }
     return left;
   }
@@ -239,6 +244,11 @@ class StepParser {
       this.advance();
       const inner = this.parseUnary();
       return { a: -inner.a, b: -inner.b, ok: inner.ok, divZero: inner.divZero };
+    }
+    if (t.type === 'op' && t.op === '+') {
+      // Unary plus is a no-op: "+5", "2++3", "2^+3" all evaluate.
+      this.advance();
+      return this.parseUnary();
     }
     return this.parsePrimary();
   }
@@ -257,7 +267,9 @@ class StepParser {
     }
     if (t.type === 'ident') {
       const lower = t.name.toLowerCase();
-      if (lower in CONSTANTS && t.name.length > 1) {
+      // Constants win over variables (engine parity): 'e' and 'pi' are
+      // Euler's number and pi, never unknown variables.
+      if (lower in CONSTANTS) {
         return { a: 0, b: CONSTANTS[lower], ok: true, divZero: false };
       }
       // Function call with a single parenthesized argument.

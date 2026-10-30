@@ -3,7 +3,6 @@ import { Mic, Volume2, VolumeX, Sparkles, MessageSquare } from 'lucide-react';
 
 interface VoiceHUDProps {
   isListening: boolean;
-  transcript: string;
   status: 'idle' | 'listening' | 'processing' | 'answering';
   onToggleListen: () => void;
   onExecuteCommand: (command: string) => void;
@@ -20,7 +19,6 @@ const SAMPLE_VOICE_COMMANDS = [
 
 export const VoiceHUD: React.FC<VoiceHUDProps> = ({
   isListening,
-  transcript,
   status,
   onToggleListen,
   onExecuteCommand,
@@ -46,13 +44,19 @@ export const VoiceHUD: React.FC<VoiceHUDProps> = ({
           )}
         </div>
 
-        {/* Status text or live transcript */}
+        {/* Status only: conversation stays voice-only, nothing transcribed */}
         <div className="text-left min-w-[180px] max-w-[280px]">
           <div className="text-[10px] font-semibold text-cyan-600 dark:text-cyan-400 flex items-center gap-1">
             <span>Muse Voice {status !== 'idle' ? `• ${status}` : ''}</span>
           </div>
           <div className="text-xs text-slate-800 dark:text-slate-200 truncate font-medium">
-            {transcript || (isListening ? "Listening..." : "Voice Co-Pilot ready")}
+            {status === 'listening'
+              ? 'Listening…'
+              : status === 'processing'
+              ? 'Thinking…'
+              : status === 'answering'
+              ? 'Speaking…'
+              : 'Voice Co-Pilot ready'}
           </div>
         </div>
 

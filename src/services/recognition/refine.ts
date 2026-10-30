@@ -105,6 +105,8 @@ export async function refineEquationsWithNeural(
         },
         isPlottableFunction: true,
         plotFunctionBody: parsed.functionBody,
+        hasUncertainGlyph: false,
+        uncertainAlternatives: [],
         timestamp: Date.now(),
       };
     }
@@ -122,6 +124,8 @@ export async function refineEquationsWithNeural(
       ...eq,
       expressionText,
       evaluation,
+      hasUncertainGlyph: expressionText.includes('?'),
+      uncertainAlternatives: parsed.uncertainAlternatives,
       timestamp: Date.now(),
     };
   });

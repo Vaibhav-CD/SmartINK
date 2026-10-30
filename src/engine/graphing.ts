@@ -1,4 +1,4 @@
-import { MathParser, tokenizeMath, evaluateAST } from './mathEngine';
+import { MathParser } from '../services/calcInk/mathParser';
 
 export interface GraphPoint {
   x: number;
@@ -28,13 +28,9 @@ export function generatePlotData(
   const points: GraphPoint[] = [];
   const step = (maxX - minX) / samples;
 
-  let ast: any = null;
-  try {
-    const tokens = tokenizeMath(fnExpr);
-    const parser = new MathParser(tokens);
-    ast = parser.parse();
-  } catch {
-    // Return empty plot if parse fails
+  // Sample through the canonical CalcInk engine (same semantics as ink).
+  const body = fnExpr.replace(/^(?:y|f\(x\))\s*=\s*/i, '').trim();
+  if (!body) {
     return { points: [], minX, maxX, minY: -10, maxY: 10, fnExpr };
   }
 
@@ -44,8 +40,8 @@ export function generatePlotData(
   for (let i = 0; i <= samples; i++) {
     const x = minX + i * step;
     try {
-      const evalScope = { ...scope, x, X: x };
-      const y = evaluateAST(ast, evalScope);
+      const res = MathParser.evaluate(body, { ...scope, x });
+      const y = res.success && res.value !== null ? res.value : NaN;
 
       if (Number.isFinite(y) && !Number.isNaN(y)) {
         // Clamp extreme asymptotic spikes (e.g. tan(x))

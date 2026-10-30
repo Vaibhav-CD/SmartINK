@@ -48,6 +48,7 @@ describe('PDF De-Hyphenation & Smart Translation Suite', () => {
   describe('TranslationService', () => {
     beforeEach(() => {
       vi.restoreAllMocks();
+      vi.unstubAllGlobals();
     });
 
     it('should support multi-language catalog with flags and native names', () => {
@@ -70,6 +71,9 @@ describe('PDF De-Hyphenation & Smart Translation Suite', () => {
     });
 
     it('should translate technical textbook passage with proper essence (e.g. Spanish)', async () => {
+      // Hermetic: simulate offline so the deterministic semantic fallback is exercised,
+      // never the live neural API (whose wording varies by network availability).
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
       const text = `I/O Devices\nBefore delving into the main content of this part of the book (on persistence), we first introduce the concept of an input/output (I/O) device.`;
       const translated = await TranslationService.translateText(text, 'es', 'en');
 
@@ -79,6 +83,9 @@ describe('PDF De-Hyphenation & Smart Translation Suite', () => {
     });
 
     it('should translate technical textbook passage into Hindi with proper essence', async () => {
+      // Hermetic: simulate offline so the deterministic semantic fallback is exercised,
+      // never the live neural API (whose wording varies by network availability).
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
       const text = `I/O Devices\nBefore delving into the main content of this part of the book (on persistence), we first introduce the concept of an input/output (I/O) device.`;
       const translated = await TranslationService.translateText(text, 'hi', 'en');
 

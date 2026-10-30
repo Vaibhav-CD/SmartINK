@@ -10,7 +10,8 @@ import {
   saveWorkspaceData,
 } from '../engine/persistence';
 import { clampZoom, zoomAtScreenPoint } from '../engine/coordinates';
-import { parseAndEvaluateExpression } from '../engine/mathEngine';
+import { parseAndEvaluateExpression } from '../services/calcInk/evaluateExpression';
+import { formatNumber } from '../services/calcInk/formatNumber';
 import { generateSyntheticHandwritingStrokes } from '../engine/syntheticInk';
 
 interface CanvasState {
@@ -515,7 +516,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         return {
           ...eq,
           resultValue: newValue,
-          formattedResult: Number.isInteger(newValue) ? newValue.toString() : newValue.toFixed(2),
+          formattedResult: formatNumber(newValue),
         };
       }
 

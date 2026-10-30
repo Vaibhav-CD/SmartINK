@@ -25,7 +25,7 @@ interface UnifiedTopBarProps {
   onOpenCommandPalette: () => void;
   onLoadPreset: (preset: string) => void;
   isListening: boolean;
-  voiceTranscript: string;
+  voiceStatus: 'idle' | 'listening' | 'processing' | 'answering';
   onToggleVoice: () => void;
   ttsEnabled: boolean;
   onToggleTTS: () => void;
@@ -45,7 +45,7 @@ export const UnifiedTopBar: React.FC<UnifiedTopBarProps> = ({
   onOpenCommandPalette,
   onLoadPreset,
   isListening,
-  voiceTranscript,
+  voiceStatus,
   onToggleVoice,
   ttsEnabled,
   onToggleTTS,
@@ -180,7 +180,13 @@ export const UnifiedTopBar: React.FC<UnifiedTopBarProps> = ({
             </button>
 
             <span className="text-[11px] font-medium text-slate-700 dark:text-slate-300 max-w-[120px] truncate hidden xl:inline">
-              {voiceTranscript || (isListening ? "Listening..." : "Voice Co-Pilot")}
+              {voiceStatus === 'listening'
+                ? 'Listening…'
+                : voiceStatus === 'processing'
+                ? 'Thinking…'
+                : voiceStatus === 'answering'
+                ? 'Speaking…'
+                : 'Voice Co-Pilot'}
             </span>
 
             <button

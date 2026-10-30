@@ -4,7 +4,11 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url';
 // Bundled worker source: version-locked to the installed pdfjs-dist and
 // served from our own bundle so document parsing works fully offline.
 try {
-  if (typeof window !== 'undefined' && pdfjsLib.GlobalWorkerOptions) {
+  if (
+    typeof window !== 'undefined' &&
+    pdfjsLib.GlobalWorkerOptions &&
+    window.location?.protocol?.startsWith('http')
+  ) {
     pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
   }
 } catch {

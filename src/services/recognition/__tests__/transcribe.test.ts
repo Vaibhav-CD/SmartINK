@@ -58,6 +58,23 @@ describe('transcribeWords', () => {
     expect(words.map((w) => w.text)).toEqual(['x', '1']);
   });
 
+  it('keeps apostrophes and decimal points inside words', () => {
+    const ids = ['d', 'o', 'n', 'apos', 't', 'gap', '3', 'dot', '1', '4'];
+    const strokes = ids.map((id, i) => stroke(id, i * 24, 0, id === 'apos' || id === 'dot' ? 4 : 20, id === 'apos' || id === 'dot' ? 6 : 30));
+    const cluster: GlyphClusterer = (list) => list.map((s) => [s]);
+    const chars: Record<string, string> = {
+      d: 'd', o: 'o', n: 'n', apos: '.', t: 't',
+      '3': '3', dot: '.', '1': '1', '4': '4', gap: ' ',
+    };
+    const classify: GlyphClassifier = (glyph) => ({
+      char: chars[glyph[0].id],
+      confidence: 0.95,
+    });
+
+    const words = transcribeWords(strokes, classify, cluster);
+    expect(words.map((w) => w.text)).toEqual(["don't", '3.14']);
+  });
+
   it('splits glyphs on separate lines into separate words', () => {
     const strokes = [stroke('a', 0, 0), stroke('b', 0, 200)];
     const cluster: GlyphClusterer = (list) => list.map((s) => [s]);

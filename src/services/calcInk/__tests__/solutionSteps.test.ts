@@ -40,6 +40,21 @@ describe('solveWithSteps arithmetic', () => {
     const solved = solveWithSteps('3*4');
     expect(solved?.steps[0].spoken).toBe('3 times 4 equals 12');
   });
+
+  it('accepts unary plus', () => {
+    expect(solveWithSteps('+5')?.result).toBe('5');
+    expect(solveWithSteps('2++3')?.result).toBe('5');
+    expect(solveWithSteps('2^+3')?.result).toBe('8');
+  });
+
+  it('parses power chains right-associatively', () => {
+    const solved = solveWithSteps('2^3^2');
+    expect(solved?.result).toBe('512');
+    expect(solved?.steps.map((s) => s.expression)).toEqual([
+      '3 ^ 2 = 9',
+      '2 ^ 9 = 512',
+    ]);
+  });
 });
 
 describe('solveWithSteps linear equations', () => {

@@ -122,14 +122,17 @@ export function transcribeWords(
     const gapThreshold = Math.max(14, median(widths) * 0.75);
     let current: Item[] = [];
     const flush = () => {
-      const alnum = current.filter((i) => /[A-Za-z0-9]/.test(i.char));
+      // Kept items: alphanumerics plus intra-word punctuation resolved at
+      // push time (apostrophes and decimal points survive in the word).
+      const kept = current.filter((i) => /[A-Za-z0-9'.-]/.test(i.char));
+      const alnum = kept.filter((i) => /[A-Za-z0-9]/.test(i.char));
       if (alnum.length > 0) {
-        const minX = Math.min(...alnum.map((i) => i.box.minX));
-        const minY = Math.min(...alnum.map((i) => i.box.minY));
-        const maxX = Math.max(...alnum.map((i) => i.box.maxX));
-        const maxY = Math.max(...alnum.map((i) => i.box.maxY));
+        const minX = Math.min(...kept.map((i) => i.box.minX));
+        const minY = Math.min(...kept.map((i) => i.box.minY));
+        const maxX = Math.max(...kept.map((i) => i.box.maxX));
+        const maxY = Math.max(...kept.map((i) => i.box.maxY));
         words.push({
-          text: alnum.map((i) => i.char).join(''),
+          text: kept.map((i) => i.char).join(''),
           confidence:
             alnum.reduce((acc, i) => acc + i.confidence, 0) / alnum.length,
           box: {
@@ -142,20 +145,43 @@ export function transcribeWords(
             centerX: (minX + maxX) / 2,
             centerY: (minY + maxY) / 2,
           },
-          strokeIds: alnum.flatMap((i) => i.strokeIds),
+          strokeIds: kept.flatMap((i) => i.strokeIds),
         });
       }
       current = [];
     };
-    for (const item of ordered) {
+    for (let idx = 0; idx < ordered.length; idx++) {
+      const item = ordered[idx];
+      const prevItem = ordered[idx - 1];
+      const nextItem = ordered[idx + 1];
+      // Punctuation between alphanumerics belongs to the word: a dot
+      // between digits stays a decimal point; between letters it reads
+      // as an apostrophe (don't). Sentence punctuation still separates.
+      const isIntraPunct =
+        (item.char === '.' || item.char === "'" || item.char === '-') &&
+        !!prevItem &&
+        !!nextItem &&
+        /[A-Za-z0-9]/.test(prevItem.char) &&
+        /[A-Za-z0-9]/.test(nextItem.char);
+      const isSeparator = !/[A-Za-z0-9]/.test(item.char) && !isIntraPunct;
       const prev = current[current.length - 1];
-      const isSeparator = !/[A-Za-z0-9]/.test(item.char);
       const gap = prev ? item.box.minX - prev.box.maxX : 0;
-      if ((prev && gap > gapThreshold) || isSeparator) {
+      // Narrow punctuation binds forward: the gap after an apostrophe or
+      // decimal point never starts a new word.
+      const prevIsPunct = !!prev && /['.-]/.test(prev.char);
+      if ((prev && gap > gapThreshold && !prevIsPunct) || isSeparator) {
         flush();
         if (isSeparator) continue;
       }
-      current.push(item);
+      if (isIntraPunct) {
+        const betweenDigits =
+          /[0-9]/.test(prevItem.char) && /[0-9]/.test(nextItem.char);
+        const resolved =
+          item.char === '.' && !betweenDigits ? "'" : item.char;
+        current.push({ ...item, char: resolved });
+      } else {
+        current.push(item);
+      }
     }
     flush();
   }

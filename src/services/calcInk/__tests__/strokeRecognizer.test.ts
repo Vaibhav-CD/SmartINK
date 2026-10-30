@@ -625,4 +625,60 @@ describe('PS spec example end-to-end (strokes → 30)', () => {
     expect(equations[0].expressionText).toBe('2x=6');
     expect(equations[0].evaluation.display).toBe('x = 3');
   });
+
+  it('gates unrecognizable ink to an uncertain state instead of a wrong answer', () => {
+    const mk = (id: string, points: { x: number; y: number }[], createdAt: number): Stroke => ({
+      id, points, color: '#a3e635', width: 3, createdAt,
+    });
+    // Random-walk scribble: cloud and ladder disagree, so it is gated.
+    const swoosh = mk('swoosh', [
+      { x: 132, y: 130 }, { x: 158, y: 112 }, { x: 150, y: 155 }, { x: 182, y: 140 },
+      { x: 168, y: 178 }, { x: 200, y: 162 }, { x: 186, y: 188 }, { x: 210, y: 130 },
+      { x: 142, y: 182 }, { x: 164, y: 160 }, { x: 135, y: 145 }, { x: 178, y: 118 },
+    ], 4);
+    expect(OnDeviceStrokeRecognizer.classifyGlyph([swoosh]).confidence).toBeLessThan(0.6);
+
+    const six = mk('d6', [
+      { x: 30, y: 115 }, { x: 22, y: 135 }, { x: 20, y: 150 },
+      { x: 30, y: 155 }, { x: 40, y: 145 }, { x: 25, y: 140 },
+    ], 1);
+    const plusV = mk('plus-v', [{ x: 72, y: 135 }, { x: 72, y: 155 }], 2);
+    const plusH = mk('plus-h', [{ x: 60, y: 145 }, { x: 85, y: 145 }], 3);
+
+    const equations = OnDeviceStrokeRecognizer.scanEquations([six, plusV, plusH, swoosh]);
+    expect(equations.length).toBe(1);
+    expect(equations[0].expressionText).toBe('6+?');
+    expect(equations[0].hasUncertainGlyph).toBe(true);
+    expect(equations[0].evaluation.success).toBe(false);
+    expect(equations[0].evaluation.display).toBe('Unrecognized glyph');
+    expect(Array.isArray(equations[0].uncertainAlternatives)).toBe(true);
+
+    expect(OnDeviceStrokeRecognizer.recognizeStrokeGroup([six, plusV, plusH, swoosh])).toBeNull();
+  });
+
+  it('scans a 500-stroke page within the interaction budget', () => {
+    const strokes: Stroke[] = [];
+    let t = 0;
+    for (let row = 0; row < 125; row++) {
+      const y = row * 120;
+      const mk = (id: string, points: { x: number; y: number }[]): Stroke => ({
+        id: `${id}-${row}`, points, color: '#a3e635', width: 3, createdAt: t++,
+      });
+      strokes.push(
+        mk('one-a', [{ x: 20, y: y + 30 }, { x: 20, y: y + 70 }]),
+        mk('plus-v', [{ x: 45, y: y + 35 }, { x: 45, y: y + 65 }]),
+        mk('plus-h', [{ x: 32, y: y + 50 }, { x: 58, y: y + 50 }]),
+        mk('one-b', [{ x: 75, y: y + 30 }, { x: 75, y: y + 70 }])
+      );
+    }
+    expect(strokes.length).toBe(500);
+
+    const start = performance.now();
+    const equations = OnDeviceStrokeRecognizer.scanEquations(strokes);
+    const elapsed = performance.now() - start;
+
+    expect(equations.length).toBe(125);
+    expect(equations[0].evaluation.display).toBe('2');
+    expect(elapsed).toBeLessThan(3000);
+  });
 });

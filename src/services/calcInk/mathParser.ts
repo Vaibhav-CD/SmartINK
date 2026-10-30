@@ -14,6 +14,40 @@
  * - Malformed syntax safety without uncaught exceptions
  */
 
+import { formatNumber as formatMathNumber } from './formatNumber';
+
+/**
+ * Canonical single-argument function vocabulary. Convention everywhere:
+ * `log` is base 10, `ln` is natural log — matching school-math notation.
+ */
+export const MATH_FUNCTION_NAMES = new Set([
+  'sin', 'cos', 'tan',
+  'asin', 'acos', 'atan',
+  'sqrt', 'abs', 'ln', 'log', 'exp',
+  'floor', 'ceil', 'round',
+]);
+
+/** Applies a canonical function; returns null on a domain error. */
+export function applyMathFunction(name: string, a: number): number | null {
+  switch (name.toLowerCase()) {
+    case 'sin': return Math.sin(a);
+    case 'cos': return Math.cos(a);
+    case 'tan': return Math.tan(a);
+    case 'asin': return Math.abs(a) > 1 ? null : Math.asin(a);
+    case 'acos': return Math.abs(a) > 1 ? null : Math.acos(a);
+    case 'atan': return Math.atan(a);
+    case 'sqrt': return a < 0 ? null : Math.sqrt(a);
+    case 'abs': return Math.abs(a);
+    case 'ln': return a <= 0 ? null : Math.log(a);
+    case 'log': return a <= 0 ? null : Math.log10(a);
+    case 'exp': return Math.exp(a);
+    case 'floor': return Math.floor(a);
+    case 'ceil': return Math.ceil(a);
+    case 'round': return Math.round(a);
+    default: return null;
+  }
+}
+
 export interface EvaluationResult {
   success: boolean;
   rawExpression: string;
@@ -242,10 +276,16 @@ export class MathParser {
 
       // Operators and Parentheses
       if ('+-*/%^()'.includes(char)) {
+        const prevToken = tokens[tokens.length - 1];
+        const isUnary =
+          !prevToken || prevToken === 'neg' || '+-*/%^('.includes(prevToken);
+        // Unary plus is a no-op ("+5", "2++3", "2^+3").
+        if (char === '+' && isUnary) {
+          i++;
+          continue;
+        }
         // Detect unary minus (negative number or negated subexpression)
         if (char === '-') {
-          const prevToken = tokens[tokens.length - 1];
-          const isUnary = !prevToken || '+-*/%^('.includes(prevToken);
           if (isUnary) {
             tokens.push('neg');
             i++;
@@ -264,7 +304,7 @@ export class MathParser {
 
     // Post-process tokens to insert implicit multiplication (e.g. 2x -> 2 * x, 2(x+1) -> 2 * (x+1), (a)(b) -> (a) * (b))
     const processed: string[] = [];
-    const functions = new Set(['sin', 'cos', 'tan', 'sqrt', 'abs', 'log', 'exp']);
+    const functions = MATH_FUNCTION_NAMES;
 
     for (let j = 0; j < tokens.length; j++) {
       const curr = tokens[j];
@@ -318,7 +358,7 @@ export class MathParser {
     };
 
     const isRightAssociative = (op: string) => op === '^' || op === 'neg';
-    const knownFunctions = new Set(['sin', 'cos', 'tan', 'sqrt', 'abs', 'log', 'exp']);
+    const knownFunctions = MATH_FUNCTION_NAMES;
 
     for (let i = 0; i < tokens.length; i++) {
       const token = tokens[i];
@@ -416,24 +456,12 @@ export class MathParser {
       }
 
       // Functions (single argument) - MUST check before generic variable reference!
-      if (['sin', 'cos', 'tan', 'sqrt', 'abs', 'log', 'exp'].includes(token.toLowerCase())) {
+      if (MATH_FUNCTION_NAMES.has(token.toLowerCase())) {
         if (stack.length < 1) return { value: null, error: 'Malformed function argument' };
         const a = stack.pop()!;
-        switch (token.toLowerCase()) {
-          case 'sin': stack.push(Math.sin(a)); break;
-          case 'cos': stack.push(Math.cos(a)); break;
-          case 'tan': stack.push(Math.tan(a)); break;
-          case 'sqrt':
-            if (a < 0) return { value: null, isUndefined: true };
-            stack.push(Math.sqrt(a));
-            break;
-          case 'abs': stack.push(Math.abs(a)); break;
-          case 'log':
-            if (a <= 0) return { value: null, isUndefined: true };
-            stack.push(Math.log(a));
-            break;
-          case 'exp': stack.push(Math.exp(a)); break;
-        }
+        const applied = applyMathFunction(token, a);
+        if (applied === null) return { value: null, isUndefined: true };
+        stack.push(applied);
         continue;
       }
 
@@ -522,7 +550,7 @@ export class MathParser {
     const mergedVars = { ...this.globalVariables, ...vars };
 
     // 1. Identify unknown variables in the equation
-    const reservedNames = new Set(['sin', 'cos', 'tan', 'sqrt', 'abs', 'log', 'exp', 'pi', 'e', 'neg']);
+    const reservedNames = new Set([...MATH_FUNCTION_NAMES, 'pi', 'e', 'neg']);
     const extractVars = (str: string): string[] => {
       const matches = str.match(/[a-zA-Z][a-zA-Z0-9]*/g) || [];
       return matches
@@ -692,21 +720,9 @@ export class MathParser {
     return null;
   }
 
-  /**
-   * Nicely formats computed number to avoid IEEE 754 precision artifacts
-   */
+  /** Delegates to the shared formatter so every surface renders alike. */
   private static formatNumber(num: number): string {
-    if (!isFinite(num)) return 'Undefined';
-    if (Number.isInteger(num)) return num.toString();
-
-    // Round small precision float artifacts e.g. 0.1 + 0.2 = 0.30000000000000004 -> 0.3
-    const rounded = Number(num.toPrecision(12));
-    // If rounded is integer, display as integer
-    if (Number.isInteger(rounded)) return rounded.toString();
-
-    // Limit decimal display to max 6 places, trimming trailing zeros
-    const fixed = rounded.toFixed(6).replace(/\.?0+$/, '');
-    return fixed;
+    return formatMathNumber(num);
   }
 
   /**
@@ -728,7 +744,7 @@ export class MathParser {
 
     const rpn = this.shuntingYard(tokens);
     const stack: ASTNode[] = [];
-    const functions = new Set(['sin', 'cos', 'tan', 'sqrt', 'abs', 'log', 'exp']);
+    const functions = MATH_FUNCTION_NAMES;
     const binaryOps = new Set(['+', '-', '*', '/', '%', '^']);
 
     for (const token of rpn) {
@@ -821,20 +837,11 @@ export class MathParser {
 
       case 'function_call': {
         const arg = this.evaluateAST(node.argument!, vars);
-        switch (node.name?.toLowerCase()) {
-          case 'sin': return Math.sin(arg);
-          case 'cos': return Math.cos(arg);
-          case 'tan': return Math.tan(arg);
-          case 'sqrt':
-            if (arg < 0) throw new Error('Square root of negative number');
-            return Math.sqrt(arg);
-          case 'abs': return Math.abs(arg);
-          case 'log':
-            if (arg <= 0) throw new Error('Log of non-positive number');
-            return Math.log(arg);
-          case 'exp': return Math.exp(arg);
-          default: throw new Error(`Unknown function: ${node.name}`);
+        const applied = applyMathFunction(node.name || '', arg);
+        if (applied === null) {
+          throw new Error(`Function domain error: ${node.name}`);
         }
+        return applied;
       }
 
       case 'assignment': {

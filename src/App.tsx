@@ -575,7 +575,7 @@ export function App() {
       proofs: [...page.proofs.filter((p) => p.theoremId !== target.id), ...newProofs],
     }));
 
-    speakText(`Meta Muse Wonder synthesized ${newProofs.length} proof paths.`);
+    speakText(`Found ${newProofs.length} proof paths.`);
   };
 
   // Request Socratic Hint
@@ -605,7 +605,6 @@ export function App() {
       ...page,
       socraticHints: [...page.socraticHints, hint],
     }));
-    speakText("Synthesizing document context across all pinned canvas nodes with Muse Wonder.");
   };
 
   // Recognize handwritten ink using On-Device CalcInk Recognizer + SAM 3.1
@@ -817,7 +816,7 @@ export function App() {
           ...page,
           images: [...(page.images || []), generated],
         }));
-        speakText(`Rendered high-resolution multimodal asset for ${generated.title}.`);
+        speakText(`Done. ${generated.title} is on the canvas.`);
       } else if (route.intent === 'add_paper') {
         handleAddPaper();
       } else if (route.intent === 'living_physics') {
@@ -970,10 +969,9 @@ export function App() {
       return;
     }
 
+    // Start silently: status stays visual-only, speech is answers only.
     conversationActiveRef.current = true;
-    speakReply('Listening. Ask me anything, or say write to put it on the screen.', () => {
-      startListening();
-    });
+    startListening();
   };
 
   // Add a blank theorem stamp

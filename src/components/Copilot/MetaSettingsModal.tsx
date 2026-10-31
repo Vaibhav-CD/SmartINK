@@ -3,8 +3,10 @@ import {
   DEFAULT_META_CONFIG,
   loadMetaConfig,
   saveMetaConfig,
+  getTaskModel,
+  META_TASK_LABELS,
 } from '../../engine/metaAiClient';
-import { MetaModelConfig } from '../../types/ai';
+import { MetaModelConfig, MetaTask } from '../../types/ai';
 import { Settings, X, Key, Cpu, Globe, Check } from 'lucide-react';
 
 interface MetaSettingsModalProps {
@@ -13,12 +15,16 @@ interface MetaSettingsModalProps {
 }
 
 const META_MODEL_PRESETS = [
+  { provider: 'meta', name: 'muse-wonder', url: 'https://api.meta.ai/v1' },
+  { provider: 'meta', name: 'muse-spark', url: 'https://api.meta.ai/v1' },
+  { provider: 'meta', name: 'muse-glimmer', url: 'https://api.meta.ai/v1' },
+  { provider: 'meta', name: 'muse-spark-open', url: 'https://api.meta.ai/v1' },
   { provider: 'groq', name: 'llama-3.3-70b-versatile', url: 'https://api.groq.com/openai/v1' },
-  { provider: 'groq', name: 'llama-3.2-11b-vision-preview', url: 'https://api.groq.com/openai/v1' },
   { provider: 'together', name: 'meta-llama/Llama-3.3-70B-Instruct-Turbo', url: 'https://api.together.xyz/v1' },
   { provider: 'openrouter', name: 'meta-llama/llama-3.3-70b-instruct', url: 'https://openrouter.ai/api/v1' },
-  { provider: 'custom', name: 'llama3:latest', url: 'http://localhost:11434/v1' },
 ];
+
+const ROUTED_TASKS: MetaTask[] = ['copilot', 'proofs', 'translation', 'image', 'transcribe', 'segment', 'fallback'];
 
 export const MetaSettingsModal: React.FC<MetaSettingsModalProps> = ({ isOpen, onClose }) => {
   const [config, setConfig] = useState<MetaModelConfig>(loadMetaConfig());
@@ -46,7 +52,7 @@ export const MetaSettingsModal: React.FC<MetaSettingsModalProps> = ({ isOpen, on
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/75 backdrop-blur-md select-none animate-fade-in">
-      <div className="w-full max-w-lg rounded-2xl glass-panel-glow border border-cyan-500/40 p-6 flex flex-col shadow-2xl backdrop-blur-2xl">
+      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl glass-panel-glow border border-cyan-500/40 p-6 flex flex-col shadow-2xl backdrop-blur-2xl">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-800">
           <div className="flex items-center gap-2.5">
@@ -54,9 +60,9 @@ export const MetaSettingsModal: React.FC<MetaSettingsModalProps> = ({ isOpen, on
               <Cpu className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white">Meta AI Model Settings</h2>
+              <h2 className="text-base font-bold text-white">Meta Muse Model Settings</h2>
               <p className="text-xs text-slate-400 font-mono">
-                Connect Llama 3 / Meta models for multimodal analysis
+                Muse default. Key stays local only — never committed.
               </p>
             </div>
           </div>
@@ -98,17 +104,18 @@ export const MetaSettingsModal: React.FC<MetaSettingsModalProps> = ({ isOpen, on
           <div>
             <label className="text-xs font-mono text-slate-300 flex items-center gap-1.5 mb-1">
               <Key className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Meta API Key (Groq / Together / OpenRouter):</span>
+              <span>Muse API Key (stored locally, never committed):</span>
             </label>
             <input
               type="password"
+              autoComplete="off"
               value={config.apiKey}
               onChange={(e) => setConfig({ ...config, apiKey: e.target.value })}
-              placeholder="gsk_... or together_... (Leave blank to use built-in offline engine)"
+              placeholder="Paste Muse key… (blank = offline engine)"
               className="w-full px-3.5 py-2 rounded-xl glass-input text-xs font-mono"
             />
             <p className="text-[10px] text-slate-500 mt-1 font-mono">
-              * If left blank, SmartInk runs its built-in local multimodal reasoning engine.
+              * Saved only in this browser (localStorage) or your gitignored .env.local. Never logged, never in GitHub.
             </p>
           </div>
 
@@ -135,6 +142,35 @@ export const MetaSettingsModal: React.FC<MetaSettingsModalProps> = ({ isOpen, on
               onChange={(e) => setConfig({ ...config, baseUrl: e.target.value })}
               className="w-full px-3.5 py-2 rounded-xl glass-input text-xs font-mono"
             />
+          </div>
+
+          {/* Per-task model routing */}
+          <div>
+            <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+              Model per task (Meta Model API):
+            </label>
+            <div className="space-y-2">
+              {ROUTED_TASKS.map((task) => (
+                <div key={task} className="flex items-center gap-2">
+                  <span className="flex-1 text-[11px] text-slate-400">{META_TASK_LABELS[task]}</span>
+                  <input
+                    type="text"
+                    aria-label={META_TASK_LABELS[task]}
+                    value={getTaskModel(config, task)}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        taskModels: { ...(config.taskModels ?? {}), [task]: e.target.value },
+                      })
+                    }
+                    className="w-44 px-2.5 py-1.5 rounded-lg glass-input text-[11px] font-mono"
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-slate-500 mt-1 font-mono">
+              Chat routes retry Glimmer → Spark Open (open weights), then the offline engine.
+            </p>
           </div>
         </div>
 

@@ -27,11 +27,7 @@ export const MetaModelIndicator: React.FC<MetaModelIndicatorProps> = ({
   const [saved, setSaved] = useState(false);
 
   const handleSave = () => {
-    onUpdateConfig({
-      ...config,
-      apiKey: apiKeyInput,
-      isLiveApi: !!apiKeyInput.trim(),
-    });
+    onUpdateConfig({ ...config, apiKey: apiKeyInput });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };

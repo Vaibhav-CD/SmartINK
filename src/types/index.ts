@@ -122,15 +122,10 @@ export interface SocraticAnnotation {
 
 export type CanvasItem = TheoremItem | NoteItem | DocumentItem | ImageItem;
 
-export interface MetaModelConfig {
-  apiKey: string;
-  endpoint: string;
-  reasoningModel: 'muse-wonder' | 'muse-spark-1.3';
-  visionModel: 'muse-spark-1.3' | 'sam-3.1';
-  imageModel: 'muse-image';
-  transcribeModel: 'muse-voice-transcribe';
-  isLiveApi: boolean;
-}
+// Single source of truth for Meta model config lives in ./ai
+// (provider, modelName, apiKey, baseUrl, temperature) and is persisted
+// via loadMetaConfig/saveMetaConfig in src/engine/metaAiClient.ts.
+export type { MetaModelConfig } from './ai';
 
 export interface VoiceState {
   isListening: boolean;

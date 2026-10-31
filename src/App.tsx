@@ -21,6 +21,7 @@ import { CommandPalette } from './components/CommandPalette';
 import { SmartInkHomePage } from './components/SmartInkHomePage';
 import { SimulationStudio } from './components/SimulationStudio/SimulationStudio';
 import { MetaAIService } from './services/metaAI';
+import { loadMetaConfig, saveMetaConfig } from './engine/metaAiClient';
 import { loadWorkspace, saveWorkspace, createDefaultWorkspace } from './services/workspaceStorage';
 import { OnDeviceStrokeRecognizer, type ProjectedEquation } from './services/calcInk/strokeRecognizer';
 import { MathParser } from './services/calcInk/mathParser';
@@ -109,16 +110,15 @@ export function App() {
     workspace.pages.find((p) => p.id !== activePage.id) || 
     activePage;
 
-  // Meta Model API Configuration
-  const [metaConfig, setMetaConfig] = useState<MetaModelConfig>({
-    apiKey: '',
-    endpoint: 'https://api.meta.ai/v1',
-    reasoningModel: 'muse-wonder',
-    visionModel: 'muse-spark-1.3',
-    imageModel: 'muse-image',
-    transcribeModel: 'muse-voice-transcribe',
-    isLiveApi: false,
-  });
+  // Meta Model API Configuration — single store shared by TopBar,
+  // Copilot settings, proofs, and translation (loadMetaConfig /
+  // saveMetaConfig in engine/metaAiClient, persisted to localStorage
+  // and .env.local only, never committed).
+  const [metaConfig, setMetaConfig] = useState<MetaModelConfig>(() => loadMetaConfig());
+  const handleUpdateMetaConfig = (next: MetaModelConfig) => {
+    setMetaConfig(next);
+    saveMetaConfig(next);
+  };
 
   // Voice Co-pilot State
   const [voiceState, setVoiceState] = useState<VoiceState>({
@@ -1154,7 +1154,7 @@ export function App() {
         theme={theme}
         onToggleTheme={toggleTheme}
         config={metaConfig}
-        onUpdateConfig={setMetaConfig}
+        onUpdateConfig={handleUpdateMetaConfig}
         isSplitView={isSplitView}
         onToggleSplitView={() => setIsSplitView(prev => !prev)}
       />

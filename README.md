@@ -43,7 +43,7 @@ SmartInk unites the fluid pen feel of Apple Notes and GoodNotes, the real-time l
 
 ### 4. Multimodal AI Copilot (Meta Models)
 - **Lasso & Area Query:** Draw a selection loop around any region of the canvas (handwriting, diagrams, graphs, text).
-- **Meta Llama Integration:** Routes spatial crops and extracted symbols to Meta models (Llama 3.3 70B, Llama 3.2 Vision, etc.) via Groq, Together AI, OpenRouter, or local Ollama / vLLM endpoints.
+- **Meta Model API Integration:** One key, one model per job — SAM 3.1 segments the lasso crop, Muse Spark answers, Muse Wonder proves, Muse Image generates visuals, Muse Voice Transcribe handles audio; Muse Glimmer / Muse Spark Open (open weights) are the retry chain before the offline engine. Groq / Together / OpenRouter presets remain selectable but are never the default.
 - **Step-by-step explanations, alternative methods, and active recall flashcards** rendered in KaTeX.
 - **Offline Fallback Engine:** Built-in offline mathematical and scientific reasoning engine ensures full functionality even without an external API key.
 - **Voice Ink Commands:** Say "write Taylor's theorem on screen" and the app inks it onto the canvas in handwriting, or "explain this" to hear step-by-step working. Speech input, canvas output — no separate chat box.
@@ -72,8 +72,8 @@ Every model or AI service the app can call at runtime, and when each path activa
 
 | # | Runtime call | Model / service | Meta? | When active |
 |---|--------------|-----------------|-------|-------------|
-| 1 | Copilot, proofs, translation, general knowledge (`src/services/metaAI.ts`) | **Meta Llama** (`llama-3.3-70b-instruct` default; override via `VITE_META_MODEL` / `VITE_META_API_URL`) | ✅ Yes | Only when a Meta API key is configured (`VITE_META_API_KEY`, `VITE_LLAMA_API_KEY`, or in-app settings) |
-| 2 | Lasso / spatial copilot query (`src/engine/metaAiClient.ts`) | **Meta Llama** (`llama-3.3-70b-versatile` default via the configured OpenAI-compatible endpoint) | ✅ Yes (Meta model family) | Only when a key is saved in Meta settings; otherwise returns the offline template |
+| 1 | Per-task Meta Model API routing (`src/engine/metaAiClient.ts`: `getTaskModel`, `DEFAULT_TASK_MODELS`) | **Muse Spark** = copilot/translation, **Muse Wonder** = proofs, **Muse Image** = visuals, **Muse Voice Transcribe** = voice, **SAM 3.1** = lasso segmentation; open-weights **Muse Glimmer → Muse Spark Open** retry chain, then offline engine | ✅ Yes | Only when a Meta API key is configured (`VITE_MUSE_API_KEY`, in-app Settings, or per-task `VITE_MUSE_*_MODEL` overrides) |
+| 2 | Lasso / spatial copilot query (`src/engine/metaAiClient.ts`, `LassoCopilotModal`) | **SAM 3.1** segments the crop, then **Muse Spark** answers (model shown in the modal; `modelUsed` records any fallback) | ✅ Yes | Only when a key is saved in Meta settings; otherwise SAM is skipped and the offline template answers |
 | 3 | Digit refinement (`src/services/recognition/`, `public/models/mnist-12.onnx`) | MNIST-12 CNN, ONNX Model Zoo (MIT), 100% on-device via ONNX Runtime Web | ⚠️ **No — exception, see below** | Always available offline; only refines digits at ≥0.90 confidence, geometric result otherwise |
 | 4 | Translation fallback (`src/services/translation/translationService.ts`) | MyMemory web API | ⚠️ **No — inactive during a Meta-keyed demo** | Only when NO Meta key is set AND network is up; with a Meta key, path #1 serves all translation |
 | 5 | Speech in/out (`src/services/speech/`, `src/engine/speechEngine.ts`) | Web Speech API (browser / OS voices) | — (platform API, no third-party model call) | Always; voices come from the user's own browser |

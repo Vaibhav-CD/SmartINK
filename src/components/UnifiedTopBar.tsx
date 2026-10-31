@@ -61,11 +61,9 @@ export const UnifiedTopBar: React.FC<UnifiedTopBarProps> = ({
   const [saved, setSaved] = useState(false);
 
   const handleSave = () => {
-    onUpdateConfig({
-      ...config,
-      apiKey: apiKeyInput,
-      isLiveApi: !!apiKeyInput.trim(),
-    });
+    // Persists via App -> saveMetaConfig() to the single localStorage
+    // store read by MetaAIService and the Copilot settings.
+    onUpdateConfig({ ...config, apiKey: apiKeyInput });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };

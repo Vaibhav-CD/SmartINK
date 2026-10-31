@@ -61,14 +61,14 @@ class TranslationManager {
     const apiKey = MetaAIService.getApiKey();
     if (apiKey) {
       try {
-        const response = await fetch(MetaAIService.getApiEndpoint(), {
+        const response = await fetch(MetaAIService.getApiEndpoint('translation'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiKey}`,
           },
           body: JSON.stringify({
-            model: MetaAIService.getModel(),
+            model: MetaAIService.getModel('translation'),
             messages: [
               {
                 role: 'system',

@@ -11,6 +11,12 @@ node_modules
 dist
 dist-ssr
 *.local
+# API keys and local env — never commit real keys.
+# Use .env.example (committed, placeholders only) + local .env.local (gitignored)
+# or enter the key in-app via Meta Settings (browser localStorage only).
+.env
+.env.local
+.env.*.local
 pip-*
 __pycache__
 *.pyc

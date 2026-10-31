@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { queryMetaModel, loadMetaConfig } from '../../engine/metaAiClient';
+import { queryMetaModel, loadMetaConfig, getTaskModel, segmentCanvasImage } from '../../engine/metaAiClient';
 import { CopilotResponse, Flashcard } from '../../types/ai';
 import { LatexRenderer } from '../UI/LatexRenderer';
 import {
@@ -36,11 +36,17 @@ export const LassoCopilotModal: React.FC<LassoCopilotModalProps> = ({
   const handleQuery = async (type = queryType) => {
     setIsLoading(true);
     try {
+      // SAM 3.1 segments the crop first (null offline -> geometric path).
+      const segment = cropDataUrl
+        ? await segmentCanvasImage(cropDataUrl, extractedSymbols, metaConfig)
+        : null;
       const res = await queryMetaModel({
         imageCropDataUrl: cropDataUrl,
         extractedSymbols,
         queryType: type,
         userPrompt: userPrompt.trim() || undefined,
+        task: 'copilot',
+        segmentCount: segment ? segment.masks.length : undefined,
       });
       setResponse(res);
     } catch (err) {
@@ -71,9 +77,9 @@ export const LassoCopilotModal: React.FC<LassoCopilotModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-white flex items-center gap-2">
-                <span>Meta Llama AI Copilot</span>
+                <span>Meta Muse Copilot</span>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 font-mono border border-cyan-500/30">
-                  {metaConfig.modelName}
+                  {getTaskModel(metaConfig, 'segment')} → {getTaskModel(metaConfig, 'copilot')}
                 </span>
               </h2>
               <p className="text-xs text-slate-400 font-mono">
@@ -164,6 +170,9 @@ export const LassoCopilotModal: React.FC<LassoCopilotModalProps> = ({
             </div>
           ) : response ? (
             <div className="space-y-4">
+              {response.modelUsed && (
+                <p className="text-[10px] font-mono text-slate-500">Answered by {response.modelUsed}</p>
+              )}
               {/* If flashcards returned */}
               {response.flashcards && response.flashcards.length > 0 ? (
                 <div className="grid grid-cols-1 gap-3">

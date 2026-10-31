@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+﻿import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   loadMetaConfig,
   saveMetaConfig,
@@ -82,7 +82,7 @@ describe('unified Meta config store', () => {
     const cfg = loadMetaConfig();
     expect(cfg.apiKey).toBe('');
     expect(cfg.provider).toBe('meta');
-    expect(cfg.modelName).toBe('muse-wonder');
+    expect(cfg.modelName).toBe('muse-wonder-1.0');
     expect(cfg.baseUrl).toBe('https://api.meta.ai/v1');
   });
 
@@ -122,7 +122,7 @@ describe('unified Meta config store', () => {
     expect(MetaAIService.getApiEndpoint()).toBe(
       'https://api.meta.ai/v1/chat/completions'
     );
-    expect(MetaAIService.getModel()).toBe('muse-wonder');
+    expect(MetaAIService.getModel()).toBe('muse-wonder-1.0');
   });
 
   it('reports unconfigured when no key exists anywhere', () => {
@@ -130,3 +130,4 @@ describe('unified Meta config store', () => {
     expect(MetaAIService.isConfigured()).toBe(false);
   });
 });
+

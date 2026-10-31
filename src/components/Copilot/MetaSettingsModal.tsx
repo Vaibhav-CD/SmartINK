@@ -15,10 +15,10 @@ interface MetaSettingsModalProps {
 }
 
 const META_MODEL_PRESETS = [
-  { provider: 'meta', name: 'muse-wonder', url: 'https://api.meta.ai/v1' },
-  { provider: 'meta', name: 'muse-spark', url: 'https://api.meta.ai/v1' },
-  { provider: 'meta', name: 'muse-glimmer', url: 'https://api.meta.ai/v1' },
-  { provider: 'meta', name: 'muse-spark-open', url: 'https://api.meta.ai/v1' },
+  { provider: 'meta', name: 'muse-wonder-1.0', url: 'https://api.meta.ai/v1' },
+  { provider: 'meta', name: 'muse-spark-1.3', url: 'https://api.meta.ai/v1' },
+  { provider: 'meta', name: 'muse-spark-1.2', url: 'https://api.meta.ai/v1' },
+  { provider: 'meta', name: 'Llama-4-Maverick-17B-128E-Instruct-FP8', url: 'https://api.llama.com/v1' },
   { provider: 'groq', name: 'llama-3.3-70b-versatile', url: 'https://api.groq.com/openai/v1' },
   { provider: 'together', name: 'meta-llama/Llama-3.3-70B-Instruct-Turbo', url: 'https://api.together.xyz/v1' },
   { provider: 'openrouter', name: 'meta-llama/llama-3.3-70b-instruct', url: 'https://openrouter.ai/api/v1' },

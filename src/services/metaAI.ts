@@ -6,6 +6,7 @@ import {
   getTaskModel,
   generateMetaImage,
   transcribeAudio,
+  resolveRuntimeConfig,
 } from '../engine/metaAiClient';
 import type { MetaTask } from '../types/ai';
 
@@ -311,14 +312,15 @@ export class MetaAIService {
 
   /** Full chat-completions URL, normalized via resolveChatCompletionsUrl. */
   public static getApiEndpoint(task: MetaTask = 'proofs'): string {
+    const base = resolveRuntimeConfig(loadMetaConfig()).baseUrl;
     return task === 'proofs'
-      ? resolveChatCompletionsUrl(loadMetaConfig().baseUrl)
-      : resolveMetaEndpoint(loadMetaConfig().baseUrl, task);
+      ? resolveChatCompletionsUrl(base)
+      : resolveMetaEndpoint(base, task);
   }
 
   /** Model routed for a task. No arg keeps the legacy proofs behaviour. */
   public static getModel(task: MetaTask = 'proofs'): string {
-    return getTaskModel(loadMetaConfig(), task);
+    return getTaskModel(resolveRuntimeConfig(loadMetaConfig()), task);
   }
 
   /** Muse Voice Transcribe with Web Speech as the caller's fallback. */
@@ -697,6 +699,16 @@ Provide the response in JSON with this schema:
           const content = data.choices?.[0]?.message?.content;
           return JSON.parse(content);
         }
+        // A configured-but-rejected key must not masquerade as "not sure":
+        // say so once, casually, and point at the fix.
+        if (response.status === 401 || response.status === 403) {
+          return {
+            title: "Can't reach the cloud",
+            answer: "My API key isn't being accepted, so I'm offline right now. Maths, canvas writing, and the topics I know still work — or paste a valid Meta key in Settings and I'll answer everything again.",
+            spokenSummary: "Quick heads-up, my API key isn't working, so I'm offline at the moment. I can still do maths and write on the canvas, or you can drop a valid key in Settings.",
+            keyFacts: []
+          };
+        }
       } catch (err) {
         console.warn('Meta API call failed, falling back to local knowledge engine:', err);
       }
@@ -754,6 +766,46 @@ Provide the response in JSON with this schema:
           "Defines the International System of Units (SI) definition of the kilogram"
         ]
       };
+    }
+
+    const capitals: Record<string, string> = {
+      france: 'Paris', india: 'New Delhi', japan: 'Tokyo', germany: 'Berlin',
+      italy: 'Rome', spain: 'Madrid', china: 'Beijing', russia: 'Moscow',
+      egypt: 'Cairo', australia: 'Canberra', canada: 'Ottawa', brazil: 'Brasilia',
+      'united kingdom': 'London', uk: 'London', britain: 'London',
+      'united states': 'Washington, D.C.', usa: 'Washington, D.C.', america: 'Washington, D.C.',
+    };
+    const capitalMatch = q.match(/capital of (?:the )?([a-z ]+?)(?:\?|$|\s+is\b)/) || q.match(/capital of ([a-z ]+)/);
+    if (capitalMatch) {
+      const country = capitalMatch[1].trim();
+      const city = capitals[country];
+      if (city) {
+        return {
+          title: `Capital of ${country}`,
+          answer: `The capital of ${country} is ${city}.`,
+          spokenSummary: `That's ${city}.`,
+          keyFacts: []
+        };
+      }
+    }
+
+    const bank: Array<[RegExp, string, string, string]> = [
+      [/largest planet|biggest planet/, 'Jupiter', 'Jupiter is the biggest planet in our solar system, a gas giant more massive than all the other planets combined.', 'Jupiter, easily. It is the biggest planet in our solar system.'],
+      [/solar system|how many planets|planets are there/, 'The Solar System', 'There are eight planets: Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, and Neptune.', 'Eight planets, Mercury out to Neptune. Earth is the third one from the Sun.'],
+      [/photosynthesis/, 'Photosynthesis', 'Photosynthesis is how plants turn sunlight, water, and carbon dioxide into glucose and oxygen: 6CO2 + 6H2O -> C6H12O6 + 6O2.', 'Plants use sunlight, water, and carbon dioxide to make sugar and oxygen.'],
+      [/newton.*law|laws of motion/, "Newton's Laws", 'First: objects keep their motion unless a force acts. Second: F = ma. Third: every action has an equal and opposite reaction.', 'Three laws: inertia, F equals m a, and action-reaction.'],
+      [/boil.*water|water.*boil|boiling point/, 'Boiling Point of Water', 'Water boils at 100 degrees Celsius (212 Fahrenheit) at sea level.', 'Water boils at a hundred degrees Celsius.'],
+      [/freez.*water|water.*freez|freezing point/, 'Freezing Point of Water', 'Water freezes at 0 degrees Celsius (32 Fahrenheit).', 'Water freezes at zero degrees Celsius.'],
+      [/bones.*human|human.*bones|how many bones/, 'Human Bones', 'An adult human has 206 bones. Babies are born with around 300, and many fuse together as they grow.', 'Adults have two hundred and six bones.'],
+      [/dna/, 'DNA', 'DNA is the molecule that stores genetic instructions. It is a double helix of two strands joined by base pairs: A with T, and C with G.', 'DNA is the double-helix molecule that carries your genetic instructions.'],
+      [/\bmoon\b/, 'The Moon', 'The Moon is Earth\'s only natural satellite, about 384,400 km away. Its gravity causes most of our ocean tides.', 'The Moon is Earth\'s only natural satellite, about three hundred eighty-four thousand kilometres away.'],
+      [/\bsun\b|closest star/, 'The Sun', 'The Sun is a star at the centre of our solar system. Its core is about 15 million degrees Celsius, fusing hydrogen into helium.', 'The Sun is our closest star, fusing hydrogen into helium in its core.'],
+      [/relativity|einstein/, 'Einstein and Relativity', 'Einstein\'s special relativity says the speed of light is the same for everyone, and mass-energy obeys E = mc^2. General relativity describes gravity as curved spacetime.', 'Einstein showed light speed is constant for everyone, and gravity is really curved spacetime.'],
+      [/pythagor|a\^2 \+ b\^2/, 'Pythagorean Theorem', 'In a right triangle, a^2 + b^2 = c^2, where c is the hypotenuse.', 'In a right triangle, a squared plus b squared equals c squared.'],
+      [/value of pi|what is pi\b/, 'Pi', 'Pi is about 3.14159, the ratio of a circle\'s circumference to its diameter.', 'Pi is about three point one four one five nine.'],
+    ];
+    for (const [pattern, title, answer, spokenSummary] of bank) {
+      if (pattern.test(q)) return { title, answer, spokenSummary, keyFacts: [] };
     }
 
     return {

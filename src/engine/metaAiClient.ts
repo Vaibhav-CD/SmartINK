@@ -11,11 +11,11 @@ import {
 
 /** One Meta model per SmartInk job. All routes share one Meta Model API key. */
 export const DEFAULT_TASK_MODELS: Record<MetaTask, string> = {
-  copilot: 'muse-spark',
-  proofs: 'muse-wonder',
-  translation: 'muse-spark',
-  image: 'muse-image',
-  transcribe: 'muse-voice-transcribe',
+  copilot: 'muse-spark-1.3',
+  proofs: 'muse-wonder-1.0',
+  translation: 'muse-spark-1.3',
+  image: 'muse-image-1.0',
+  transcribe: 'muse-voice-transcribe-1.0',
   segment: 'sam-3.1',
   fallback: 'muse-glimmer',
 };
@@ -42,7 +42,7 @@ export const META_TASK_LABELS: Record<MetaTask, string> = {
  */
 export const DEFAULT_META_CONFIG: MetaModelConfig = {
   provider: 'meta',
-  modelName: 'muse-wonder',
+  modelName: 'muse-wonder-1.0',
   apiKey: '',
   baseUrl: 'https://api.meta.ai/v1',
   temperature: 0.2,
@@ -66,8 +66,8 @@ export function resolveChatCompletionsUrl(baseUrl: string): string {
 const MODALITY_SUFFIX: Record<MetaModality, string> = {
   chat: '/chat/completions',
   image: '/images/generations',
-  transcribe: '/audio/transcriptions',
-  segment: '/segment',
+  transcribe: '/asr/transcribe',
+  segment: '/responses',
 };
 
 /** Full endpoint for a task/modality from a stored base URL. Never double-appends. */
@@ -97,10 +97,39 @@ export function getTaskModel(config: MetaModelConfig, task: MetaTask): string {
   return DEFAULT_TASK_MODELS[task];
 }
 
-/** Ordered open-weights chat models to retry after the primary route fails. */
+/** Ordered chat models to retry after the primary route fails: hosted Spark first, then open weights. */
 export function getFallbackModels(config: MetaModelConfig, exclude?: string): string[] {
-  const ordered = [getTaskModel(config, 'fallback'), ...OPEN_WEIGHTS_FALLBACK_MODELS];
+  const hosted = /api\.meta\.ai/.test(config.baseUrl) ? ['muse-spark-1.2'] : [];
+  const ordered = [...hosted, getTaskModel(config, 'fallback'), ...OPEN_WEIGHTS_FALLBACK_MODELS];
   return [...new Set(ordered)].filter((m) => m && m !== exclude);
+}
+
+/** Chat model served by the Llama API for LLM_-prefixed keys. */
+export const LLAMA_API_CHAT_MODEL = 'Llama-4-Maverick-17B-128E-Instruct-FP8';
+export const LLAMA_API_BASE_URL = 'https://api.llama.com/v1';
+
+/**
+ * LLM_-prefixed keys belong to the Meta Llama API, not api.meta.ai: sending
+ * one there (or a Muse model name to the Llama API) always 401/404s and the
+ * app silently falls back to offline for everything. Remap endpoint + chat
+ * models so a valid Llama key actually works; Muse routing is untouched
+ * for every other key. Image/transcribe/segment keep their Muse routes and
+ * fail soft (null) on a Llama key.
+ */
+export function resolveRuntimeConfig(config: MetaModelConfig): MetaModelConfig {
+  const key = config.apiKey?.trim() ?? '';
+  if (!key.startsWith('LLM_') || !/api\.meta\.ai/.test(config.baseUrl)) return config;
+  return {
+    ...config,
+    baseUrl: LLAMA_API_BASE_URL,
+    taskModels: {
+      ...config.taskModels,
+      copilot: LLAMA_API_CHAT_MODEL,
+      proofs: LLAMA_API_CHAT_MODEL,
+      translation: LLAMA_API_CHAT_MODEL,
+      fallback: LLAMA_API_CHAT_MODEL,
+    },
+  };
 }
 
 function envMetaOverrides(): Partial<MetaModelConfig> {
@@ -232,8 +261,9 @@ export function generateLocalMetaReasoning(request: CopilotQueryRequest): Copilo
  */
 export async function queryMetaModel(
   request: CopilotQueryRequest,
-  config: MetaModelConfig = loadMetaConfig()
+  rawConfig: MetaModelConfig = loadMetaConfig()
 ): Promise<CopilotResponse> {
+  const config = resolveRuntimeConfig(rawConfig);
   if (!config.apiKey || !config.apiKey.trim()) {
     return generateLocalMetaReasoning(request);
   }
@@ -355,14 +385,26 @@ export async function segmentCanvasImage(
   if (!config.apiKey?.trim() || !imageDataUrl) return null;
   try {
     const model = getTaskModel(config, 'segment');
+    // SAM 3.1 runs on the Responses API: one input_text prompt + one input_image part.
     const res = await fetch(resolveMetaEndpoint(config.baseUrl, 'segment'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey.trim()}` },
-      body: JSON.stringify({ model, image: imageDataUrl, prompt: prompt ?? 'handwritten strokes and symbols' }),
+      body: JSON.stringify({
+        model,
+        input: [
+          {
+            role: 'user',
+            content: [
+              { type: 'input_text', text: prompt ?? 'handwritten strokes' },
+              { type: 'input_image', image_url: imageDataUrl },
+            ],
+          },
+        ],
+      }),
     });
     if (!res.ok) return null;
     const data = await res.json();
-    const masks = data.masks ?? data.segments ?? data.data ?? [];
+    const masks = data.masks ?? data.segments ?? data.output ?? data.data ?? [];
     return { masks: Array.isArray(masks) ? masks : [], model };
   } catch {
     return null;

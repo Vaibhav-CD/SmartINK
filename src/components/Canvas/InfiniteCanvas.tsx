@@ -30,6 +30,7 @@ import { MathParser } from '../../services/calcInk/mathParser';
 import { solveWithSteps, type SolutionStep } from '../../services/calcInk/solutionSteps';
 import { transcribeWords } from '../../services/recognition/transcribe';
 import type { ConversationContext } from '../../services/copilot/conversationAgent';
+import { LassoCopilotModal } from '../Copilot/LassoCopilotModal';
 import { 
   isStrokeIntersected, 
   isScratchGesture, 
@@ -198,6 +199,7 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
     equation: ProjectedEquation;
     steps: SolutionStep[] | null;
   } | null>(null);
+  const [copilotSymbol, setCopilotSymbol] = useState<string | null>(null);
 
   // Real-time scanned equations
   const [projectedEquations, setProjectedEquations] = useState<ProjectedEquation[]>([]);
@@ -1397,6 +1399,14 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
                 </div>
               )}
 
+              <button
+                onClick={() => setCopilotSymbol(circleReticle.equation.expressionText)}
+                className="px-2 py-0.5 rounded bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-[10px] cursor-pointer"
+                title="Explain with the Muse Spark copilot"
+              >
+                Explain
+              </button>
+
               {onConvertToTheoremCard && (
                 <button
                   onClick={() => onConvertToTheoremCard(circleReticle.equation)}
@@ -1434,6 +1444,12 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
           </div>
         )}
       </div>
+
+      <LassoCopilotModal
+        isOpen={copilotSymbol !== null}
+        onClose={() => setCopilotSymbol(null)}
+        extractedSymbols={copilotSymbol ?? undefined}
+      />
 
       {/* Ergonomic Viewport Zoom & Fit Controls */}
       <CanvasViewportControls

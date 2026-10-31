@@ -134,29 +134,37 @@ export function resolveRuntimeConfig(config: MetaModelConfig): MetaModelConfig {
 
 function envMetaOverrides(): Partial<MetaModelConfig> {
   try {
-    const env = (import.meta as any)?.env ?? {};
+    // In Node/test environments, check process.env first (allows test stubbing via vi.stubEnv).
+    // In Vite browser builds, fall back to import.meta.env.
+    const procEnv = typeof process !== 'undefined' ? process.env : undefined;
+    const metaEnv = (import.meta as unknown as { env?: Record<string, string> }).env ?? {};
+    const read = (key: string): string | undefined => {
+      if (procEnv && key in procEnv) return procEnv[key];
+      return metaEnv[key];
+    };
+
     const overrides: Partial<MetaModelConfig> = {};
     // Meta Muse first (project requirement), then generic Meta/Llama aliases.
     const key =
-      env.VITE_MUSE_API_KEY ||
-      env.VITE_META_API_KEY ||
-      env.VITE_LLAMA_API_KEY ||
-      env.VITE_GROQ_API_KEY ||
-      env.VITE_OPENROUTER_API_KEY;
+      read('VITE_MUSE_API_KEY') ||
+      read('VITE_META_API_KEY') ||
+      read('VITE_LLAMA_API_KEY') ||
+      read('VITE_GROQ_API_KEY') ||
+      read('VITE_OPENROUTER_API_KEY');
     if (key) overrides.apiKey = key;
-    const baseUrl = env.VITE_MUSE_API_URL || env.VITE_META_API_URL;
+    const baseUrl = read('VITE_MUSE_API_URL') || read('VITE_META_API_URL');
     if (baseUrl) overrides.baseUrl = baseUrl;
-    const model = env.VITE_MUSE_MODEL || env.VITE_META_MODEL;
+    const model = read('VITE_MUSE_MODEL') || read('VITE_META_MODEL');
     if (model) overrides.modelName = model;
     const taskModels: Partial<Record<MetaTask, string>> = {};
-    const taskEnv: Array<[MetaTask, string]> = [
-      ['copilot', env.VITE_MUSE_COPILOT_MODEL],
-      ['proofs', env.VITE_MUSE_PROOFS_MODEL],
-      ['translation', env.VITE_MUSE_TRANSLATION_MODEL],
-      ['image', env.VITE_MUSE_IMAGE_MODEL],
-      ['transcribe', env.VITE_MUSE_TRANSCRIBE_MODEL],
-      ['segment', env.VITE_MUSE_SEGMENT_MODEL],
-      ['fallback', env.VITE_MUSE_FALLBACK_MODEL],
+    const taskEnv: Array<[MetaTask, string | undefined]> = [
+      ['copilot', read('VITE_MUSE_COPILOT_MODEL')],
+      ['proofs', read('VITE_MUSE_PROOFS_MODEL')],
+      ['translation', read('VITE_MUSE_TRANSLATION_MODEL')],
+      ['image', read('VITE_MUSE_IMAGE_MODEL')],
+      ['transcribe', read('VITE_MUSE_TRANSCRIBE_MODEL')],
+      ['segment', read('VITE_MUSE_SEGMENT_MODEL')],
+      ['fallback', read('VITE_MUSE_FALLBACK_MODEL')],
     ];
     for (const [task, value] of taskEnv) {
       if (value) taskModels[task] = value;

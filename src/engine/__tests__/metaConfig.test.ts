@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   loadMetaConfig,
   saveMetaConfig,
@@ -35,16 +35,11 @@ describe('unified Meta config store', () => {
     'VITE_GROQ_API_KEY',
     'VITE_OPENROUTER_API_KEY',
   ];
-  let originalEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    const envObj = (import.meta as any)?.env;
-    if (envObj) {
-      envKeys.forEach((k) => {
-        originalEnv[k] = envObj[k];
-        delete envObj[k];
-      });
-    }
+    envKeys.forEach((k) => {
+      vi.stubEnv(k, '');
+    });
 
     let store: Record<string, string> = {};
     Object.defineProperty(globalThis, 'localStorage', {
@@ -66,16 +61,7 @@ describe('unified Meta config store', () => {
   });
 
   afterEach(() => {
-    const envObj = (import.meta as any)?.env;
-    if (envObj) {
-      envKeys.forEach((k) => {
-        if (originalEnv[k] !== undefined) {
-          envObj[k] = originalEnv[k];
-        } else {
-          delete envObj[k];
-        }
-      });
-    }
+    vi.unstubAllEnvs();
   });
 
   it('returns the Muse default config when nothing is saved', () => {

@@ -31,6 +31,13 @@ describe('matchWriteup', () => {
     expect(matchWriteup('quadratic formula')?.lines.length).toBeGreaterThan(1);
   });
 
+  it('matches Pythagoras however speech recognition spells it', () => {
+    expect(matchWriteup('the pythagoras theorem')?.title).toBe('Pythagorean Theorem');
+    expect(matchWriteup('the Pythagorean Theorem!')?.title).toBe('Pythagorean Theorem');
+    expect(matchWriteup('pie thagoras theorem')?.title).toBe('Pythagorean Theorem');
+    expect(matchWriteup('pytha goras theorem')?.title).toBe('Pythagorean Theorem');
+  });
+
   it('returns null for unknown topics', () => {
     expect(matchWriteup('photosynthesis')).toBeNull();
   });

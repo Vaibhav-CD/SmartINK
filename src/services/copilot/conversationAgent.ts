@@ -297,8 +297,8 @@ export async function askAgent(
   }
   const prompt =
     contextLines.length > 0
-      ? `Canvas context:\n${contextLines.join('\n')}\n\nStudent question: ${text}\n\nAnswer concisely for a student. Put math in $...$ spans.`
-      : text;
+      ? `Canvas context:\n${contextLines.join('\n')}\n\nStudent question: ${text}\n\nReply like a friendly person talking out loud: short, natural, casual. Never narrate processing or mention systems, pipelines, or models. Put math in $...$ spans.`
+      : `${text}\n\nReply like a friendly person talking out loud: short, natural, casual. Never narrate processing or mention systems, pipelines, or models.`;
   try {
     const cloud = await cloudAsk(prompt);
     if (cloud) {

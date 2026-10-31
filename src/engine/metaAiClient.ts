@@ -208,7 +208,7 @@ export function generateLocalMetaReasoning(request: CopilotQueryRequest): Copilo
 
   if (request.queryType === 'solve') {
     return {
-      markdown: `### Step-by-Step Meta Model Solution\n\n**Query Analyzed:** \`${query}\`\n\n#### Step 1: Algebraic Formulation\nIdentify constants, parameters, and variable dependencies within the spatial equation.\n\n#### Step 2: Evaluation & Expansion\nApply operator precedence rules (PEMDAS) and resolve inner parenthetical groupings:\n\n$$ f(x) = \\int (2x + 1) dx = x^2 + x + C $$\n\n#### Step 3: Dimensional Verification\nVerify units and test edge boundary values to ensure numerical stability.\n\n**Final Conclusion:** All dynamic bindings across the SmartInk canvas remain in continuous equilibrium.`,
+      markdown: `### Let's work through it\n\nYou asked about \`${query}\`.\n\n#### Step 1: Set it up\nSpot the constants and variables, and how they depend on each other.\n\n#### Step 2: Work it out\nFollow the usual order of operations and simplify the brackets first:\n\n$$ f(x) = \\int (2x + 1) dx = x^2 + x + C $$\n\n#### Step 3: Sanity check\nDrop in a simple value and make sure the answer still makes sense.\n\n**Bottom line:** change any number on the canvas and this updates with it.`,
       latexFormulas: ['f(x) = x^2 + x + C', 'V = \\pi r^2 h'],
       steps: [
         'Isolate LHS variable and group common polynomial powers',
@@ -220,7 +220,7 @@ export function generateLocalMetaReasoning(request: CopilotQueryRequest): Copilo
 
   // Default: explain / summarize
   return {
-    markdown: `### Meta Llama 3 Multimodal Analysis\n\n**Canvas Context:** \`${query}\`\n\n- **Mathematical Structure:** The selected region defines an analytical mathematical relationship.\n- **Living Ink Equilibrium:** Any adjustments made using the on-canvas scrubber sliders will trigger a reactive recalculation across connected formulas.\n- **Graphing Projection:** This equation can be plotted in real-time as an inline 2D coordinate plot next to your handwriting.\n\n$$\\lim_{x \\to 0} \\frac{\\sin(x)}{x} = 1$$\n\n*Tip: Drag the dynamic scrubber slider on numeric terms to explore sensitivity.*`,
+    markdown: `### Here's what I see\n\nYou selected \`${query}\`.\n\n- It's a mathematical relationship — tweak any number with the scrubber slider and everything connected to it recalculates live.\n- You can also plot it right next to your handwriting as a small graph.\n\n$$\\lim_{x \\to 0} \\frac{\\sin(x)}{x} = 1$$\n\n*Tip: drag a scrubber slider on a number to see how sensitive the result is.*`,
     latexFormulas: ['\\lim_{x \\to 0} \\frac{\\sin(x)}{x} = 1'],
   };
 }

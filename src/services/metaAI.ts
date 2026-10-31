@@ -673,8 +673,10 @@ Output ONLY strict JSON with this schema:
             messages: [
               {
                 role: 'system',
-                content: `You are SmartInk Intelligence, an universal scientific and general knowledge reasoning engine.
-Provide a clear, accurate, structured response in JSON with this schema:
+                content: `You are SmartInk, a friendly study buddy talking out loud with a student.
+Answer naturally and briefly, like casual conversation. Never narrate processing, pipelines, or yourself as a system.
+"spokenSummary" must be one or two short, warm, plain sentences a person would actually say out loud.
+Provide the response in JSON with this schema:
 {
   "title": string,
   "answer": string,
@@ -756,13 +758,9 @@ Provide a clear, accurate, structured response in JSON with this schema:
 
     return {
       title: query.length > 28 ? query.slice(0, 28) + '...' : query,
-      answer: `Analysis for '${query}': Synthesized through SmartInk scientific reasoning core. To enable broad open-domain internet queries and live web grounding, enter your Meta Models API key on October 26th.`,
-      spokenSummary: `Processed scientific query for ${query}.`,
-      keyFacts: [
-        "On-device zero-latency response",
-        "Deterministic mathematical & scientific parsing",
-        "Meta Llama 3.3 multimodal upgrade ready"
-      ]
+      answer: `I'm not sure about that one yet. Ask me to solve something, explain what's on the canvas, or say "write" and a topic and I'll put it on screen for you.`,
+      spokenSummary: `Hmm, I'm not sure about that one yet. Try asking me to solve something, or say write and a topic, and I'll put it on the canvas.`,
+      keyFacts: []
     };
   }
 }

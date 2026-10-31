@@ -10,6 +10,8 @@ import {
   segmentCanvasImage,
 } from '../metaAiClient';
 import type { MetaModelConfig } from '../../types/ai';
+import { generateLocalMetaReasoning } from '../metaAiClient';
+import { MetaAIService } from '../../services/metaAI';
 
 const metaCfg = (over: Partial<MetaModelConfig> = {}): MetaModelConfig => ({
   ...DEFAULT_META_CONFIG,
@@ -100,6 +102,15 @@ describe('routed API calls (mocked fetch)', () => {
     } as Response);
     await expect(transcribeAudio(new Blob(['audio']), metaCfg())).resolves.toBe('write the pythagorean theorem');
     expect(String(vi.mocked(fetch).mock.calls[0][0])).toBe('https://api.meta.ai/v1/audio/transcriptions');
+  });
+
+  it('offline spoken replies stay casual, with no processing narration', async () => {
+    vi.mocked(fetch).mockRejectedValueOnce(new Error('offline'));
+    const res = await MetaAIService.getInstance().answerGeneralQuestion('what is the weather like', 'test-key');
+    expect(res.spokenSummary).not.toMatch(/processed|processing|scientific query/i);
+    expect(res.spokenSummary.toLowerCase()).toContain('not sure');
+    const local = generateLocalMetaReasoning({ queryType: 'explain', extractedSymbols: 'x+1' });
+    expect(local.markdown).not.toMatch(/Multimodal Analysis|Living Ink Equilibrium/i);
   });
 
   it('segmentation returns masks from SAM 3.1', async () => {

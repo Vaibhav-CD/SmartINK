@@ -711,10 +711,12 @@ export function App() {
   const handleWriteOnCanvas = useCallback(async (topic: string, onDone?: () => void) => {
     const writeup = await resolveWriteup(topic);
     if (!writeup) {
-      speakReply(`I couldn't find ${topic}. Try another topic.`, onDone);
+      speakReply(`Sorry, I don't know ${topic} yet. Try another topic.`, onDone);
       return;
     }
     inkWriteup(writeup);
+    // Voice can start from Home/Studio: bring the canvas forward so the ink is visible.
+    setCurrentView('canvas');
     speakReply(writeup.spoken, onDone);
   }, [inkWriteup, speakReply]);
 
@@ -731,6 +733,7 @@ export function App() {
       lines: [display],
       spoken: `Written on the canvas: ${display.replace(/=/g, ' equals ')}.`,
     });
+    setCurrentView('canvas');
     speakReply(`Written on the canvas: ${display.replace(/=/g, ' equals ')}.`, onDone);
   }, [inkWriteup, speakReply]);
 

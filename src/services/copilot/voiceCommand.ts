@@ -5,7 +5,7 @@ import {
   type CloudAsk,
   type ConversationContext,
 } from './conversationAgent';
-import { extractWriteTopic } from './canvasWriter';
+import { extractWriteTopic, matchWriteup } from './canvasWriter';
 import { MetaAIService } from '../metaAI';
 
 export type VoiceDeviceIntent =
@@ -70,6 +70,14 @@ export async function routeVoiceCommand(
   // the last spoken reply.
   if (UNDO_COMMAND.test(text)) return { action: 'undo' };
   if (REPEAT_COMMAND.test(text)) return { action: 'repeat' };
+
+  // 0b. Speech engines often hear "write" as "right"/"rite". Treat those
+  // as write only when the rest names a known canvas topic, so a plain
+  // "right" (yes/correct) is never mistaken for a write command.
+  const homophone = text.match(/^(?:please\s+)?(?:right|rite)\s+(.+)$/i);
+  if (homophone && matchWriteup(homophone[1])) {
+    return { action: 'write', topic: homophone[1].trim() };
+  }
 
   // 1. Math in the message goes straight to the conversation solver.
   if (extractExpression(text)) return converse();

@@ -28,7 +28,8 @@ const WRITE_BANK: BankEntry[] = [
     spoken: "Writing Taylor's theorem on the canvas.",
   },
   {
-    match: ['pythag', 'hypotenuse'],
+    // Includes common speech-recognition spellings ("pie thagoras", "pytha goras").
+    match: ['pythag', 'thagoras', 'tha goras', 'hypotenuse', 'right triangle theorem'],
     title: 'Pythagorean Theorem',
     lines: [
       'Pythagorean Theorem:',
@@ -71,8 +72,18 @@ const WRITE_BANK: BankEntry[] = [
   },
 ];
 
+/** Lowercase, drop punctuation and leading articles: "the Pythagoras theorem!" -> "pythagoras theorem". */
+export function normalizeTopic(topic: string): string {
+  return topic
+    .toLowerCase()
+    .replace(/[?.!,;:'"]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^(the|a|an)\s+/, '');
+}
+
 export function matchWriteup(topic: string): CanvasWriteup | null {
-  const lower = topic.toLowerCase();
+  const lower = normalizeTopic(topic);
   const entry = WRITE_BANK.find((e) => e.match.some((k) => lower.includes(k)));
   if (!entry) return null;
   return { title: entry.title, lines: entry.lines, spoken: entry.spoken };
@@ -84,11 +95,11 @@ export function matchWriteup(topic: string): CanvasWriteup | null {
  */
 export function extractWriteTopic(command: string): string | null {
   const match = command.match(
-    /^(?:please\s+)?(?:write|show|display|jot down|put)\s+(.+)$/i
+    /^(?:please\s+)?(?:write(?:\s+down)?|show|display|jot down|put)\s+(.+)$/i
   );
   if (!match) return null;
   const topic = match[1]
-    .replace(/\s+on (the )?screen\s*$/i, '')
+    .replace(/\s+on (the )?(screen|canvas|board)\s*$/i, '')
     .replace(/\s+(down|up|out|it)\s*$/i, '')
     .replace(/[?.!]+$/, '')
     .trim();

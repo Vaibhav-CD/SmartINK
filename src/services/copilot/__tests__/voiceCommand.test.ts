@@ -37,6 +37,18 @@ describe('routeVoiceCommand', () => {
     expect(route.action).toBe('write');
   });
 
+  it('routes "write the pythagoras theorem" to ink', async () => {
+    const route = await routeVoiceCommand('write the pythagoras theorem', {}, cloudStub);
+    expect(route).toEqual({ action: 'write', topic: 'the pythagoras theorem' });
+  });
+
+  it('treats a mis-heard "right" as write only for known topics', async () => {
+    const route = await routeVoiceCommand('right the pythagoras theorem', {}, cloudStub);
+    expect(route.action).toBe('write');
+    const plain = await routeVoiceCommand('right', {}, cloudStub);
+    expect(plain.action).toBe('converse');
+  });
+
   it('routes write-the-steps to solution ink when canvas context exists', async () => {
     const route = await routeVoiceCommand('write the steps on screen', ctx, cloudStub);
     expect(route).toEqual({ action: 'write_solution' });

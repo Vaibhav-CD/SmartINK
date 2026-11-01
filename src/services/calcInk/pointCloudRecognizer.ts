@@ -287,6 +287,17 @@ export class PointCloudRecognizer {
       { x: 75, y: 85 },
     ]);
 
+    // Digit 2 (angular: flat peak, straight diagonal — the shape a quickly
+    // written small/superscript 2 takes; distinct from the curved forms)
+    this.addTemplate('digit_2_angular', '2', [
+      { x: 15, y: 32 },
+      { x: 44, y: 15 },
+      { x: 77, y: 32 },
+      { x: 77, y: 57 },
+      { x: 23, y: 85 },
+      { x: 82, y: 85 },
+    ]);
+
     // Digit 2 (curved base / smooth handwritten 2)
     this.addTemplate('digit_2_curved', '2', [
       { x: 30, y: 30 },

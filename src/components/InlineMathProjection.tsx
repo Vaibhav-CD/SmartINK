@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { ProjectedEquation } from '../services/calcInk/strokeRecognizer';
-import { Sparkles, Copy, Check, AlertCircle, AlertTriangle, Activity, PenLine, SlidersHorizontal } from 'lucide-react';
+import { solveWithSteps } from '../services/calcInk/solutionSteps';
+import { Sparkles, Copy, Check, AlertCircle, AlertTriangle, Activity, PenLine, SlidersHorizontal, ListOrdered } from 'lucide-react';
 
 interface InlineMathProjectionProps {
   equation: ProjectedEquation;
@@ -20,7 +21,13 @@ export const InlineMathProjection: React.FC<InlineMathProjectionProps> = ({
   scale: _scale = 1,
 }) => {
   const [copied, setCopied] = useState(false);
+  const [showSteps, setShowSteps] = useState(false);
   const [showScrubber, setShowScrubber] = useState(false);
+  const stepped = useMemo(
+    () => solveWithSteps(equation.expressionText),
+    [equation.expressionText]
+  );
+  const hasSteps = !!stepped && stepped.steps.length > 0 && !equation.evaluation.isUndefined;
   const [scrubberVal, setScrubberVal] = useState<number>(() => {
     return typeof equation.evaluation.value === 'number' ? equation.evaluation.value : 1;
   });
@@ -73,7 +80,7 @@ export const InlineMathProjection: React.FC<InlineMathProjectionProps> = ({
         style={{
           transform: `translate(${equation.anchorPosition.x}px, ${equation.anchorPosition.y}px)`,
         }}
-        className="absolute z-20 pointer-events-auto select-none flex items-center gap-1.5 animate-in fade-in zoom-in-90 duration-200"
+        className="absolute z-20 pointer-events-none select-none flex items-center gap-1.5 animate-in fade-in zoom-in-90 duration-200"
       >
         <div
           className="flex items-center gap-2 px-3 py-1.5 rounded-2xl backdrop-blur-xl border border-slate-400/70 bg-slate-100/90 dark:bg-slate-900/90 text-slate-600 dark:text-slate-300 shadow-lg"
@@ -103,7 +110,7 @@ export const InlineMathProjection: React.FC<InlineMathProjectionProps> = ({
       style={{
         transform: `translate(${equation.anchorPosition.x}px, ${equation.anchorPosition.y}px)`,
       }}
-      className="absolute z-20 pointer-events-auto select-none flex items-center gap-1.5 animate-in fade-in zoom-in-90 duration-200"
+      className="absolute z-20 pointer-events-none [&_button]:pointer-events-auto [&_input]:pointer-events-auto select-none flex items-center gap-1.5 animate-in fade-in zoom-in-90 duration-200"
     >
       {/* Inline Glow Capsule right adjacent to terminal equals or expression */}
       <div
@@ -156,6 +163,22 @@ export const InlineMathProjection: React.FC<InlineMathProjectionProps> = ({
               : `= ${equation.evaluation.display}`}
           </span>
         </div>
+
+        {/* Action: Step-by-step solution trace */}
+        {hasSteps && (
+          <button
+            onClick={() => setShowSteps(!showSteps)}
+            className={`flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg font-bold cursor-pointer border transition-all hover:scale-105 ${
+              showSteps
+                ? 'bg-lime-500 text-slate-950 border-lime-400'
+                : 'bg-lime-500/20 text-lime-300 border-lime-500/40 hover:bg-lime-500/35'
+            }`}
+            title="Show step-by-step solution"
+          >
+            <ListOrdered className="w-3 h-3" />
+            <span className="hidden sm:inline">Steps</span>
+          </button>
+        )}
 
         {/* Action: Apple Math Notes Style "Write into Canvas as Ink" */}
         {onWriteInInk && !isUndefined && (
@@ -217,6 +240,27 @@ export const InlineMathProjection: React.FC<InlineMathProjectionProps> = ({
           </button>
         )}
       </div>
+
+      {/* Step-by-step solution trace panel */}
+      {showSteps && hasSteps && stepped && (
+        <div className="absolute top-12 left-0 z-30 min-w-52 p-3 rounded-xl bg-white dark:bg-slate-950/95 border border-emerald-500/60 dark:border-lime-500/50 shadow-xl backdrop-blur-md animate-in fade-in slide-in-from-top-1">
+          <div className="flex items-center gap-1.5 font-bold text-emerald-600 dark:text-lime-400 text-[11px] mb-1.5">
+            <ListOrdered className="w-3.5 h-3.5" />
+            <span>Step-by-step solution</span>
+          </div>
+          <ol className="space-y-1">
+            {stepped.steps.map((step, i) => (
+              <li key={i} className="flex items-baseline gap-2 text-xs font-mono text-slate-700 dark:text-slate-200">
+                <span className="text-slate-400 dark:text-slate-500">{i + 1}.</span>
+                <span>{step.expression}</span>
+              </li>
+            ))}
+          </ol>
+          <div className="mt-2 pt-1.5 border-t border-slate-200 dark:border-slate-800 text-xs font-mono font-bold text-emerald-600 dark:text-lime-400">
+            {stepped.result}
+          </div>
+        </div>
+      )}
 
       {/* Socratic Error Sniffer Bubble */}
       {equation.hasDerivationError && equation.errorExplanation && (

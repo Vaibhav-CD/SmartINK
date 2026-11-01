@@ -111,6 +111,64 @@ describe('refineEquationsWithNeural', () => {
     expect(refined).toBe(scanned);
   });
 
+  it('never lets the digit model override a non-digit glyph (x, +)', async () => {
+    // Handwritten "2x+4=10": the MNIST digit model has no authority over
+    // variables or operators, however confident it claims to be.
+    const mk = (id: string, points: { x: number; y: number }[], t: number): Stroke => ({
+      id, points, color: '#a3e635', width: 3, createdAt: t,
+    });
+    const densify = (pts: { x: number; y: number }[], per = 6) => {
+      const out: { x: number; y: number }[] = [];
+      for (let i = 0; i < pts.length - 1; i++) {
+        for (let j = 0; j < per; j++) {
+          const f = j / per;
+          out.push({ x: pts[i].x + (pts[i + 1].x - pts[i].x) * f, y: pts[i].y + (pts[i + 1].y - pts[i].y) * f });
+        }
+      }
+      out.push(pts[pts.length - 1]);
+      return out;
+    };
+    const ellipse = (cx: number, cy: number, rx: number, ry: number, n = 28) =>
+      Array.from({ length: n + 1 }, (_, i) => {
+        const a = -Math.PI / 2 + (i / n) * Math.PI * 2;
+        return { x: cx + rx * Math.cos(a), y: cy + ry * Math.sin(a) };
+      });
+
+    const xGlyph = [
+      mk('x-a', [{ x: 87, y: 25 }, { x: 109, y: 53 }], 2),
+      mk('x-b', [{ x: 109, y: 25 }, { x: 87, y: 53 }], 3),
+    ];
+    const plusGlyph = [
+      mk('p-v', [{ x: 132, y: 22 }, { x: 132, y: 52 }], 4),
+      mk('p-h', [{ x: 120, y: 37 }, { x: 145, y: 37 }], 5),
+    ];
+    const strokes: Stroke[] = [
+      mk('d2', densify([{ x: 25, y: 35 }, { x: 35, y: 18 }, { x: 65, y: 18 }, { x: 75, y: 35 }, { x: 60, y: 55 }, { x: 25, y: 85 }, { x: 75, y: 85 }]), 1),
+      ...xGlyph,
+      ...plusGlyph,
+      mk('f-l', [{ x: 180, y: 12 }, { x: 163, y: 37 }, { x: 187, y: 37 }], 6),
+      mk('f-v', [{ x: 180, y: 12 }, { x: 180, y: 52 }], 7),
+      mk('e-t', [{ x: 200, y: 35 }, { x: 225, y: 35 }], 8),
+      mk('e-b', [{ x: 200, y: 49 }, { x: 225, y: 49 }], 9),
+      mk('d1', [{ x: 245, y: 10 }, { x: 245, y: 50 }], 10),
+      mk('d0', ellipse(285, 32, 20, 23), 11),
+    ];
+    const scanned = OnDeviceStrokeRecognizer.scanEquations(strokes);
+    expect(scanned[0].expressionText).toBe('2x+4=10');
+
+    const refined = await refineEquationsWithNeural(
+      scanned,
+      strokes,
+      stubClassifier([
+        [glyphSignature(xGlyph), { digit: '1', confidence: 0.99 }],
+        [glyphSignature(plusGlyph), { digit: '4', confidence: 0.99 }],
+      ])
+    );
+    expect(refined).toBe(scanned);
+    expect(refined[0].expressionText).toBe('2x+4=10');
+    expect(refined[0].evaluation.display).toBe('x = 3');
+  });
+
   it('leaves equations untouched when the classifier is unavailable', async () => {
     const six1 = six('six-1', 0);
     const six2 = six('six-2', 65);

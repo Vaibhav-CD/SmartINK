@@ -72,6 +72,13 @@ export async function refineEquationsWithNeural(
       const prediction = neural.get(sig);
       if (!prediction || prediction.confidence < minConfidence) continue;
       const geometric = OnDeviceStrokeRecognizer.classifyGlyph(glyph);
+      // The neural model is a digit-only (MNIST) classifier: it may only
+      // correct one digit into another. It has no authority over variables
+      // or operators — a confident "digit" reading of an 'x' or '+' raster
+      // is a category error, and overriding it corrupts valid equations
+      // (observed live: 2x+4=10 refined into 2144=10).
+      if (!/^[0-9]$/.test(geometric.char)) continue;
+      if (!/^[0-9]$/.test(prediction.digit)) continue;
       if (
         geometric.char !== prediction.digit &&
         (geometric.confidence < prediction.confidence ||

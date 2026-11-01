@@ -599,11 +599,17 @@ export class OnDeviceStrokeRecognizer {
     const xReversals = this.countXReversals(pts);
 
     // Check for self-intersections (full scan with a segment gap so
-    // mid-stroke crossings, e.g. the waist of an 8, are not missed)
+    // mid-stroke crossings, e.g. the waist of an 8, are not missed).
+    // A closed loop (a handwritten '0' whose pen returns to its start)
+    // has its last segments touching its first at the shared start/end
+    // point; that closure contact is not a self-crossing, and counting
+    // it made exactly-closed zeros fall through every digit branch.
+    const isClosedLoop = startEndDist < 0.35;
     let hasSelfIntersection = false;
     let intersectY = 0;
     for (let i = 0; i < pts.length - 1; i++) {
       for (let j = i + 8; j < pts.length - 1; j++) {
+        if (isClosedLoop && i < 3 && j > pts.length - 5) continue;
         if (this.segmentsIntersect(pts[i], pts[i + 1], pts[j], pts[j + 1])) {
           hasSelfIntersection = true;
           intersectY = (pts[i].y + pts[j].y) / 2;

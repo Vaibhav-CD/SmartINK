@@ -176,7 +176,7 @@ export const SmartInkHomePage: React.FC<SmartInkHomePageProps> = ({
         <p className={`text-sm sm:text-base mt-3 text-center max-w-xl font-medium leading-relaxed ${
           isDark ? 'text-slate-400' : 'text-slate-600'
         }`}>
-          AI-Native Spatial Research Workbench powered by the Meta Model API and SmartInk Multimodal Matrix.
+          AI-Native Spatial Research Workbench with the SmartInk Multimodal Matrix.
         </p>
 
         {/* Futuristic Expansive Prompt SmartBox Form */}
@@ -330,7 +330,6 @@ export const SmartInkHomePage: React.FC<SmartInkHomePageProps> = ({
         isDark ? 'border-white/5 text-slate-500' : 'border-slate-200 text-slate-500'
       }`}>
         <div>SmartInk MATRIX • BEN 10 SCI-FI THEME EDITION</div>
-        <div>POWERED BY META MODEL API (MUSE SPARK / WONDER)</div>
       </footer>
     </div>
   );

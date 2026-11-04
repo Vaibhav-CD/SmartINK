@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import React from 'react';
 import type { TheoremItem, ProofNode } from '../types';
 

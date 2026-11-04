@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 export interface CalcVariable {
   name: string;
   value: number;

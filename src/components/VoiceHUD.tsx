@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import React, { useState } from 'react';
 import { Mic, Volume2, VolumeX, Sparkles, MessageSquare } from 'lucide-react';
 

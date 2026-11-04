@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import { MathParser, MATH_FUNCTION_NAMES } from './mathParser';
 
 /**

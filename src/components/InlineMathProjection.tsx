@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { ProjectedEquation } from '../services/calcInk/strokeRecognizer';
 import { solveWithSteps } from '../services/calcInk/solutionSteps';

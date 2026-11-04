@@ -1,4 +1,5 @@
-﻿/**
+﻿// Created by VaibhavCD
+/**
  * SmartInk Text-to-Speech (TTS) Engine
  * Provides client-side speech synthesis with word boundary tracking,
  * natural voice selection, persona profiles (Male, Female, Child, Scholar, Robot),

@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import type { Point, Stroke } from '../../types';
 
 export interface BoundingBox {

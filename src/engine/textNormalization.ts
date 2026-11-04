@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 /**
  * Smart Text Normalization and De-Hyphenation Engine.
  * Repairs PDF/OCR broken words across linebreaks, removes header/footer noise,

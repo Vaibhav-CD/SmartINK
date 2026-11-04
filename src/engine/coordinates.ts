@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import { Point, Viewport } from '../types/canvas';
 
 export const MIN_ZOOM = 0.1;

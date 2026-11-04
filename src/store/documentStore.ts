@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import { create } from 'zustand';
 import { DocumentItem, TTSState, VoicePersona } from '../types/document';
 import { ingestPdfDocument } from '../engine/pdfPipeline';

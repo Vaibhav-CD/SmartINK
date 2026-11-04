@@ -1,4 +1,5 @@
-﻿/**
+﻿// Created by VaibhavCD
+/**
  * SmartInk Smart Translation Engine
  * Translates academic, mathematical, and technical literature with contextual essence,
  * idioms, natural phrasing, and technical terminology preservation.

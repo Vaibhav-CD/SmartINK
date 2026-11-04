@@ -1,4 +1,5 @@
-﻿import React from 'react';
+﻿// Created by VaibhavCD
+import React from 'react';
 
 interface SmartInkLogoProps {
   size?: number;

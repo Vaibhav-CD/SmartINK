@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import React, { useState, useEffect } from 'react';
 import { queryMetaModel, loadMetaConfig, getTaskModel, segmentCanvasImage } from '../../engine/metaAiClient';
 import { CopilotResponse, Flashcard } from '../../types/ai';

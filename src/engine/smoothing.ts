@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import { Point, StrokePoint } from '../types/canvas';
 
 /**

@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import React from 'react';
 
 export const GalvanicCornerCircuits: React.FC = () => {

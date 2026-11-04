@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import React, { useRef, useEffect } from 'react';
 import { generatePlotData, renderGraphToCanvas } from '../../engine/graphing';
 import { worldToScreen } from '../../engine/coordinates';

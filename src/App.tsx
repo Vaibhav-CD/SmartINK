@@ -1,4 +1,5 @@
-﻿import { useState, useEffect, useCallback, useRef } from 'react';
+﻿// Created by VaibhavCD
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { 
   ToolMode, 
   Point,

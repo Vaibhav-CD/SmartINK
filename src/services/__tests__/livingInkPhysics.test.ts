@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import { describe, it, expect } from 'vitest';
 import { LivingInkPhysicsEngine } from '../physics/livingInkPhysics';
 import { OnDeviceStrokeRecognizer, type ProjectedEquation } from '../calcInk/strokeRecognizer';

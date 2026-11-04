@@ -1,4 +1,5 @@
-﻿import React, { useState } from 'react';
+﻿// Created by VaibhavCD
+import React, { useState } from 'react';
 import type { MetaModelConfig } from '../types';
 import { SmartInkLogo } from './SmartInkLogo';
 import { 

@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import type { Point, Stroke } from '../../types';
 import { MathParser, type EvaluationResult } from './mathParser';
 import { getStrokesBoundingBox, type BoundingBox } from './coordinateTransform';

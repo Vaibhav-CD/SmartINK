@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import { OnDeviceStrokeRecognizer } from '../calcInk/strokeRecognizer';
 import type { ProjectedEquation } from '../calcInk/strokeRecognizer';
 import { MathParser } from '../calcInk/mathParser';

@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import { OnDeviceStrokeRecognizer } from '../calcInk/strokeRecognizer';
 import { PointCloudRecognizer } from '../calcInk/pointCloudRecognizer';
 import {

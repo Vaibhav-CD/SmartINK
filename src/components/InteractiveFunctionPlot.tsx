@@ -1,4 +1,5 @@
-﻿import React, { useState, useMemo, useEffect } from 'react';
+﻿// Created by VaibhavCD
+import React, { useState, useMemo, useEffect } from 'react';
 import type { Point } from '../types';
 import { MathParser } from '../services/calcInk/mathParser';
 import { Activity, X, Move, ZoomIn, ZoomOut, Plus, Eye, EyeOff, Copy, Sparkles, Layers, Play, Pause, SlidersHorizontal } from 'lucide-react';

@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import { describe, it, expect } from 'vitest';
 import { OnDeviceStrokeRecognizer } from '../../calcInk/strokeRecognizer';
 import { refineEquationsWithNeural } from '../refine';

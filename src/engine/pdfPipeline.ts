@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url';
 import { DocumentItem, DocumentMetadata, DocumentPage } from '../types/document';

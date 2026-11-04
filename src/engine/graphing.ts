@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import { MathParser } from '../services/calcInk/mathParser';
 
 export interface GraphPoint {

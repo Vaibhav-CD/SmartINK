@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 /**
  * Essence-Preserving Polyglot Translation Engine.
  * Translates document text while maintaining technical formulas, symbols,

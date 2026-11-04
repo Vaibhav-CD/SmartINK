@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import * as ort from 'onnxruntime-web';
 import ortWasmSimdUrl from '../../../node_modules/onnxruntime-web/dist/ort-wasm-simd.wasm?url';
 import { rasterizeGlyph, softmax, GLYPH_RASTER_SIZE } from './rasterize';

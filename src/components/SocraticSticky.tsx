@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import React, { useState } from 'react';
 import type { SocraticAnnotation } from '../types';
 import { HelpCircle, Check, Move, Send } from 'lucide-react';

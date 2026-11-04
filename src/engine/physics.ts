@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import { LivingParticle, Point } from '../types/canvas';
 
 export class LivingInkSimulator {

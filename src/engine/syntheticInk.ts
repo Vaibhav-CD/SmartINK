@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import { Point, Stroke, StrokePoint } from '../types/canvas';
 import { chaikinSmooth } from './smoothing';
 

@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import type { Stroke } from '../../types';
 import { getStrokesBoundingBox } from './coordinateTransform';
 

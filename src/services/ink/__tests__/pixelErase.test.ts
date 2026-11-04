@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import { describe, it, expect } from 'vitest';
 import { eraseStrokePixels } from '../pixelErase';
 import type { Stroke } from '../../../types';

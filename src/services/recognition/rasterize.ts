@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import type { Stroke } from '../../types';
 
 export const GLYPH_RASTER_SIZE = 28;

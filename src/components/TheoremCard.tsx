@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import React, { useState } from 'react';
 import type { TheoremItem } from '../types';
 import { MathView } from './MathView';

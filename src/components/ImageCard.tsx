@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import React, { useState } from 'react';
 import type { ImageItem } from '../types';
 import { Image as ImageIcon, Move, Maximize2, ExternalLink, Sparkles } from 'lucide-react';

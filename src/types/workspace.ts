@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 import { Stroke, Viewport } from './canvas';
 import { SolvedEquation } from './math';
 import { DocumentItem } from './document';

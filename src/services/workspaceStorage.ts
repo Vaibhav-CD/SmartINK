@@ -1,4 +1,5 @@
-﻿import type { WorkspaceState, WorkspaceFolder, CanvasPage } from '../types';
+﻿// Created by VaibhavCD
+import type { WorkspaceState, WorkspaceFolder, CanvasPage } from '../types';
 
 const STORAGE_KEY = 'SmartInk_workspace_v3';
 

@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 export type ToolMode = 'pan' | 'select' | 'pen' | 'eraser' | 'note' | 'theorem' | 'paper' | 'image';
 
 export interface Point {

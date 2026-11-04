@@ -1,4 +1,5 @@
-﻿import type { ProofNode, SocraticAnnotation, ImageItem } from '../types';
+﻿// Created by VaibhavCD
+import type { ProofNode, SocraticAnnotation, ImageItem } from '../types';
 import {
   loadMetaConfig,
   resolveChatCompletionsUrl,

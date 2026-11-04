@@ -1,3 +1,4 @@
+// Created by VaibhavCD
 /**
  * Single number formatter for every math surface (canvas projections,
  * step solutions, scrubbers, voice-adjacent displays) so the same value

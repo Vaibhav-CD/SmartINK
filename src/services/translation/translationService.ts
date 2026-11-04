@@ -57,7 +57,7 @@ class TranslationManager {
 
     const targetLang = this.getLanguageByCode(targetLangCode);
 
-    // 1. If Meta Model / LLM API key is present, use contextual deep translation
+    // 1. Muse translation when a Meta key is present; otherwise offline fallback.
     const apiKey = MetaAIService.getApiKey();
     if (apiKey) {
       try {
@@ -98,77 +98,14 @@ CRITICAL ESSENCE GUIDELINES:
           }
         }
       } catch (err) {
-        console.warn('LLM Translation call failed, continuing to neural fallback:', err);
+        console.warn('Muse translation call failed, using offline translator:', err);
       }
     }
 
-    // 2. High-quality neural translation via Web API
-    try {
-      const translated = await this.translateViaNeuralApi(text, targetLangCode, sourceLangCode);
-      if (translated) {
-        this.cache.set(cacheKey, translated);
-        return translated;
-      }
-    } catch (err) {
-      console.warn('Neural translation API failed, applying contextual translation engine:', err);
-    }
-
-    // 3. Fallback: Context-aware semantic translator
+    // 2. Fallback: Context-aware semantic translator (offline, no third-party API)
     const fallbackTranslation = this.semanticFallbackTranslate(text, targetLangCode);
     this.cache.set(cacheKey, fallbackTranslation);
     return fallbackTranslation;
-  }
-
-  /**
-   * Neural Translation with sentence segmentation and formula preservation
-   */
-  private async translateViaNeuralApi(
-    text: string, 
-    targetLang: string, 
-    sourceLang: string
-  ): Promise<string | null> {
-    // Break into natural sentences/paragraphs to keep semantic coherence intact
-    const paragraphs = text.split(/\n+/).filter(Boolean);
-    const translatedParagraphs: string[] = [];
-
-    for (const para of paragraphs) {
-      if (para.length > 500) {
-        // Split long paragraph by sentence boundaries (. ! ?)
-        const sentences = para.match(/[^.!?]+[.!?]+|\S+$/g) || [para];
-        const translatedSentences: string[] = [];
-
-        for (const s of sentences) {
-          const trimmed = s.trim();
-          if (!trimmed) continue;
-          const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(trimmed)}&langpair=${sourceLang}|${targetLang}`;
-          const res = await fetch(url);
-          if (res.ok) {
-            const data = await res.json();
-            const translatedText = data.responseData?.translatedText;
-            if (translatedText && !translatedText.includes('MYMEMORY WARNING')) {
-              translatedSentences.push(translatedText);
-              continue;
-            }
-          }
-          translatedSentences.push(trimmed);
-        }
-        translatedParagraphs.push(translatedSentences.join(' '));
-      } else {
-        const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(para.trim())}&langpair=${sourceLang}|${targetLang}`;
-        const res = await fetch(url);
-        if (res.ok) {
-          const data = await res.json();
-          const translatedText = data.responseData?.translatedText;
-          if (translatedText && !translatedText.includes('MYMEMORY WARNING')) {
-            translatedParagraphs.push(translatedText);
-            continue;
-          }
-        }
-        translatedParagraphs.push(para);
-      }
-    }
-
-    return translatedParagraphs.length > 0 ? translatedParagraphs.join('\n\n') : null;
   }
 
   /**

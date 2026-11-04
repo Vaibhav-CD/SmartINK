@@ -18,10 +18,7 @@ const META_MODEL_PRESETS = [
   { provider: 'meta', name: 'muse-wonder-1.0', url: 'https://api.meta.ai/v1' },
   { provider: 'meta', name: 'muse-spark-1.3', url: 'https://api.meta.ai/v1' },
   { provider: 'meta', name: 'muse-spark-1.2', url: 'https://api.meta.ai/v1' },
-  { provider: 'meta', name: 'Llama-4-Maverick-17B-128E-Instruct-FP8', url: 'https://api.llama.com/v1' },
-  { provider: 'groq', name: 'llama-3.3-70b-versatile', url: 'https://api.groq.com/openai/v1' },
-  { provider: 'together', name: 'meta-llama/Llama-3.3-70B-Instruct-Turbo', url: 'https://api.together.xyz/v1' },
-  { provider: 'openrouter', name: 'meta-llama/llama-3.3-70b-instruct', url: 'https://openrouter.ai/api/v1' },
+  { provider: 'meta', name: 'muse-glimmer', url: 'https://api.meta.ai/v1' },
 ];
 
 const ROUTED_TASKS: MetaTask[] = ['copilot', 'proofs', 'translation', 'image', 'transcribe', 'segment', 'fallback'];
@@ -33,7 +30,7 @@ export const MetaSettingsModal: React.FC<MetaSettingsModalProps> = ({ isOpen, on
   if (!isOpen) return null;
 
   const handleSave = () => {
-    saveMetaConfig(config);
+    saveMetaConfig({ ...config, provider: 'meta', baseUrl: 'https://api.meta.ai/v1' });
     setSavedSuccess(true);
     setTimeout(() => {
       setSavedSuccess(false);
@@ -44,9 +41,9 @@ export const MetaSettingsModal: React.FC<MetaSettingsModalProps> = ({ isOpen, on
   const handleSelectPreset = (preset: typeof META_MODEL_PRESETS[0]) => {
     setConfig((prev) => ({
       ...prev,
-      provider: preset.provider as any,
+      provider: 'meta',
       modelName: preset.name,
-      baseUrl: preset.url,
+      baseUrl: 'https://api.meta.ai/v1',
     }));
   };
 
@@ -130,17 +127,18 @@ export const MetaSettingsModal: React.FC<MetaSettingsModalProps> = ({ isOpen, on
             />
           </div>
 
-          {/* Base URL */}
+          {/* Base URL (fixed Muse endpoint) */}
           <div>
             <label className="text-xs font-mono text-slate-300 flex items-center gap-1.5 mb-1">
               <Globe className="w-3.5 h-3.5 text-cyan-400" />
-              <span>API Base URL:</span>
+              <span>API Base URL (Meta Muse only):</span>
             </label>
             <input
               type="text"
-              value={config.baseUrl}
-              onChange={(e) => setConfig({ ...config, baseUrl: e.target.value })}
-              className="w-full px-3.5 py-2 rounded-xl glass-input text-xs font-mono"
+              value="https://api.meta.ai/v1"
+              readOnly
+              disabled
+              className="w-full px-3.5 py-2 rounded-xl glass-input text-xs font-mono opacity-70"
             />
           </div>
 

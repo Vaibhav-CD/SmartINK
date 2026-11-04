@@ -10,7 +10,7 @@ import {
   segmentCanvasImage,
 } from '../metaAiClient';
 import type { MetaModelConfig } from '../../types/ai';
-import { generateLocalMetaReasoning, resolveRuntimeConfig, LLAMA_API_CHAT_MODEL } from '../metaAiClient';
+import { generateLocalMetaReasoning, resolveRuntimeConfig } from '../metaAiClient';
 import { MetaAIService } from '../../services/metaAI';
 
 const metaCfg = (over: Partial<MetaModelConfig> = {}): MetaModelConfig => ({
@@ -32,13 +32,12 @@ describe('per-task model routing', () => {
     expect(getTaskModel(cfg, 'fallback')).toBe('muse-glimmer');
   });
 
-  it('honours per-task overrides and legacy non-Meta single-model configs', () => {
+  it('honours per-task Muse overrides and stays on Muse defaults', () => {
     expect(getTaskModel(metaCfg({ taskModels: { copilot: 'custom-spark' } }), 'copilot')).toBe('custom-spark');
-    const groq = metaCfg({ provider: 'groq', modelName: 'llama-3.3-70b-versatile', taskModels: {} });
-    expect(getTaskModel(groq, 'copilot')).toBe('llama-3.3-70b-versatile');
-    expect(getTaskModel(groq, 'proofs')).toBe('llama-3.3-70b-versatile');
-    // Non-chat modalities keep their Meta defaults even on other providers.
-    expect(getTaskModel(groq, 'image')).toBe('muse-image-1.0');
+    const cfg = metaCfg({ taskModels: {} });
+    expect(getTaskModel(cfg, 'copilot')).toBe('muse-spark-1.3');
+    expect(getTaskModel(cfg, 'proofs')).toBe('muse-wonder-1.0');
+    expect(getTaskModel(cfg, 'image')).toBe('muse-image-1.0');
   });
 
   it('builds one endpoint per modality without double-appending', () => {
@@ -104,11 +103,10 @@ describe('routed API calls (mocked fetch)', () => {
     expect(String(vi.mocked(fetch).mock.calls[0][0])).toBe('https://api.meta.ai/v1/asr/transcribe');
   });
 
-  it('routes LLM_ keys to the Llama API instead of api.meta.ai', () => {
-    const runtime = resolveRuntimeConfig(metaCfg({ apiKey: 'LLM_test_key' }));
-    expect(runtime.baseUrl).toBe('https://api.llama.com/v1');
-    expect(runtime.taskModels?.copilot).toBe(LLAMA_API_CHAT_MODEL);
-    // Non-LLM keys keep the Muse routing untouched.
+  it('keeps runtime on the Meta endpoint even for legacy configs', () => {
+    const runtime = resolveRuntimeConfig(metaCfg({ apiKey: 'test-key' }));
+    expect(runtime.baseUrl).toBe('https://api.meta.ai/v1');
+    expect(runtime.provider).toBe('meta');
     expect(resolveRuntimeConfig(metaCfg({ apiKey: 'other-key' })).baseUrl).toBe('https://api.meta.ai/v1');
   });
 
@@ -122,7 +120,7 @@ describe('routed API calls (mocked fetch)', () => {
 
   it('says the key is rejected instead of pretending not to know', async () => {
     vi.mocked(fetch).mockResolvedValueOnce({ ok: false, status: 401 } as Response);
-    const res = await MetaAIService.getInstance().answerGeneralQuestion('what is the capital of France', 'LLM_bad');
+    const res = await MetaAIService.getInstance().answerGeneralQuestion('what is the capital of France', 'bad-key');
     expect(res.spokenSummary.toLowerCase()).toContain("key isn't working");
   });
 

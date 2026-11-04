@@ -21,8 +21,8 @@ export const META_TASK_MODALITY: Record<MetaTask, MetaModality> = {
 };
 
 export interface MetaModelConfig {
-  provider: 'meta' | 'openrouter' | 'together' | 'groq' | 'custom';
-  /** Legacy single-model field. Kept for back-compat: it is the proofs model when provider is non-Meta, otherwise the saved default. */
+  provider: 'meta';
+  /** Default Muse model for the proofs task; per-task routing lives in taskModels. */
   modelName: string;
   apiKey: string;
   baseUrl: string;

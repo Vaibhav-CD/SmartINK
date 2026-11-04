@@ -34,11 +34,11 @@ export const META_TASK_LABELS: Record<MetaTask, string> = {
 };
 
 /**
- * Default provider is Meta Muse (project requirement: everything Meta).
- * Base URL and model stay overridable via .env.local
- * (VITE_MUSE_API_URL / VITE_MUSE_MODEL) or the in-app Settings modal.
- * Groq / Together / OpenRouter Llama presets remain available as
- * explicit choices in Copilot Settings, but are never the default.
+ * Strict Meta Muse-only runtime (project requirement: everything Meta).
+ * Provider is always 'meta', base URL is always https://api.meta.ai/v1,
+ * and every task model is a Muse/SAM model. No third-party provider,
+ * base URL, or model is accepted at runtime: saved and env configs are
+ * sanitized back to Muse defaults on load/save.
  */
 export const DEFAULT_META_CONFIG: MetaModelConfig = {
   provider: 'meta',
@@ -53,10 +53,10 @@ export const DEFAULT_META_CONFIG: MetaModelConfig = {
 export const META_CONFIG_STORAGE_KEY = 'smartink_meta_model_config';
 
 /**
- * Single place that turns a stored base URL into the chat-completions
- * endpoint. Accepts either a base (`https://api.groq.com/openai/v1`)
- * or an already-complete URL (`.../chat/completions`) so env values,
- * in-app settings, and presets can never double-append or miss the suffix.
+ * Single place that turns the Meta base URL into the chat-completions
+ * endpoint. Accepts either a base (`https://api.meta.ai/v1`)
+ * or an already-complete URL (`.../chat/completions`) so it can never
+ * double-append or miss the suffix.
  */
 export function resolveChatCompletionsUrl(baseUrl: string): string {
   const trimmed = baseUrl.trim().replace(/\/+$/, '');
@@ -83,52 +83,33 @@ export function resolveMetaEndpoint(baseUrl: string, taskOrModality: MetaTask | 
 }
 
 /**
- * Model for one task. Non-Meta providers have a single chat model, so chat
- * tasks keep using the legacy `modelName` there; Meta routes per task.
+ * Model for one task. Muse-only: every task routes to its Muse/SAM model.
  */
 export function getTaskModel(config: MetaModelConfig, task: MetaTask): string {
   const routed = config.taskModels?.[task]?.trim();
   if (routed) return routed;
   if (task === 'fallback') return OPEN_WEIGHTS_FALLBACK_MODELS[0];
-  if (config.provider !== 'meta' && META_TASK_MODALITY[task] === 'chat') {
-    return config.modelName;
-  }
   if (task === 'proofs' && config.modelName?.trim()) return config.modelName;
   return DEFAULT_TASK_MODELS[task];
 }
 
-/** Ordered chat models to retry after the primary route fails: hosted Spark first, then open weights. */
+/** Ordered Muse chat models to retry after the primary route fails, then offline. */
 export function getFallbackModels(config: MetaModelConfig, exclude?: string): string[] {
-  const hosted = /api\.meta\.ai/.test(config.baseUrl) ? ['muse-spark-1.2'] : [];
-  const ordered = [...hosted, getTaskModel(config, 'fallback'), ...OPEN_WEIGHTS_FALLBACK_MODELS];
+  const ordered = ['muse-spark-1.2', getTaskModel(config, 'fallback'), ...OPEN_WEIGHTS_FALLBACK_MODELS];
   return [...new Set(ordered)].filter((m) => m && m !== exclude);
 }
 
-/** Chat model served by the Llama API for LLM_-prefixed keys. */
-export const LLAMA_API_CHAT_MODEL = 'Llama-4-Maverick-17B-128E-Instruct-FP8';
-export const LLAMA_API_BASE_URL = 'https://api.llama.com/v1';
-
 /**
- * LLM_-prefixed keys belong to the Meta Llama API, not api.meta.ai: sending
- * one there (or a Muse model name to the Llama API) always 401/404s and the
- * app silently falls back to offline for everything. Remap endpoint + chat
- * models so a valid Llama key actually works; Muse routing is untouched
- * for every other key. Image/transcribe/segment keep their Muse routes and
- * fail soft (null) on a Llama key.
+ * Runtime config is always the stored Muse config. Kept as a function so
+ * callers have a single enforcement point; it forces provider/baseUrl back
+ * to Meta when an old saved config still carries a third-party value.
  */
 export function resolveRuntimeConfig(config: MetaModelConfig): MetaModelConfig {
-  const key = config.apiKey?.trim() ?? '';
-  if (!key.startsWith('LLM_') || !/api\.meta\.ai/.test(config.baseUrl)) return config;
+  if (config.provider === 'meta' && /api\.meta\.ai/.test(config.baseUrl)) return config;
   return {
     ...config,
-    baseUrl: LLAMA_API_BASE_URL,
-    taskModels: {
-      ...config.taskModels,
-      copilot: LLAMA_API_CHAT_MODEL,
-      proofs: LLAMA_API_CHAT_MODEL,
-      translation: LLAMA_API_CHAT_MODEL,
-      fallback: LLAMA_API_CHAT_MODEL,
-    },
+    provider: 'meta',
+    baseUrl: DEFAULT_META_CONFIG.baseUrl,
   };
 }
 
@@ -144,17 +125,12 @@ function envMetaOverrides(): Partial<MetaModelConfig> {
     };
 
     const overrides: Partial<MetaModelConfig> = {};
-    // Meta Muse first (project requirement), then generic Meta/Llama aliases.
-    const key =
-      read('VITE_MUSE_API_KEY') ||
-      read('VITE_META_API_KEY') ||
-      read('VITE_LLAMA_API_KEY') ||
-      read('VITE_GROQ_API_KEY') ||
-      read('VITE_OPENROUTER_API_KEY');
+    // Muse-only: only VITE_MUSE_* keys are honored.
+    const key = read('VITE_MUSE_API_KEY');
     if (key) overrides.apiKey = key;
-    const baseUrl = read('VITE_MUSE_API_URL') || read('VITE_META_API_URL');
-    if (baseUrl) overrides.baseUrl = baseUrl;
-    const model = read('VITE_MUSE_MODEL') || read('VITE_META_MODEL');
+    const baseUrl = read('VITE_MUSE_API_URL');
+    if (baseUrl && /api\.meta\.ai/.test(baseUrl)) overrides.baseUrl = baseUrl;
+    const model = read('VITE_MUSE_MODEL');
     if (model) overrides.modelName = model;
     const taskModels: Partial<Record<MetaTask, string>> = {};
     const taskEnv: Array<[MetaTask, string | undefined]> = [
@@ -178,6 +154,7 @@ function envMetaOverrides(): Partial<MetaModelConfig> {
 
 export function loadMetaConfig(): MetaModelConfig {
   // Priority: in-app Settings (localStorage) > .env.local > default.
+  // Muse-only: any stored third-party provider/baseUrl is reset to Meta.
   let saved: Partial<MetaModelConfig> = {};
   try {
     const raw = localStorage.getItem(META_CONFIG_STORAGE_KEY);
@@ -185,11 +162,16 @@ export function loadMetaConfig(): MetaModelConfig {
   } catch {
     // Fall back to env/default
   }
+  if (saved.provider !== undefined && saved.provider !== 'meta') saved.provider = 'meta';
+  if (typeof saved.baseUrl === 'string' && !/api\.meta\.ai/.test(saved.baseUrl)) {
+    delete saved.baseUrl;
+  }
   const env = envMetaOverrides();
   return {
     ...DEFAULT_META_CONFIG,
     ...env,
     ...saved,
+    provider: 'meta',
     // Per-task routes merge field-by-field so old saved configs (no
     // taskModels) gain the new defaults instead of losing routing.
     taskModels: {
@@ -202,7 +184,10 @@ export function loadMetaConfig(): MetaModelConfig {
 
 export function saveMetaConfig(config: MetaModelConfig) {
   try {
-    localStorage.setItem(META_CONFIG_STORAGE_KEY, JSON.stringify(config));
+    localStorage.setItem(
+      META_CONFIG_STORAGE_KEY,
+      JSON.stringify({ ...config, provider: 'meta', baseUrl: DEFAULT_META_CONFIG.baseUrl })
+    );
   } catch {
     // Ignore storage errors
   }
@@ -263,9 +248,7 @@ export function generateLocalMetaReasoning(request: CopilotQueryRequest): Copilo
 }
 
 /**
- * Executes a query using Meta Muse models (default) via an
- * OpenAI-compatible endpoint. Groq / Together / OpenRouter Llama
- * presets remain selectable in Settings but are not the default.
+ * Executes a query using Meta Muse models only via the Meta endpoint.
  */
 export async function queryMetaModel(
   request: CopilotQueryRequest,

@@ -8,12 +8,12 @@ import {
 import { MetaAIService } from '../../services/metaAI';
 
 describe('resolveChatCompletionsUrl', () => {
-  it('appends /chat/completions to a base URL', () => {
-    expect(resolveChatCompletionsUrl('https://api.groq.com/openai/v1')).toBe(
-      'https://api.groq.com/openai/v1/chat/completions'
+  it('appends /chat/completions to the Meta base URL', () => {
+    expect(resolveChatCompletionsUrl('https://api.meta.ai/v1')).toBe(
+      'https://api.meta.ai/v1/chat/completions'
     );
-    expect(resolveChatCompletionsUrl('https://api.groq.com/openai/v1/')).toBe(
-      'https://api.groq.com/openai/v1/chat/completions'
+    expect(resolveChatCompletionsUrl('https://api.meta.ai/v1/')).toBe(
+      'https://api.meta.ai/v1/chat/completions'
     );
   });
 
@@ -30,10 +30,8 @@ describe('resolveChatCompletionsUrl', () => {
 describe('unified Meta config store', () => {
   const envKeys = [
     'VITE_MUSE_API_KEY',
-    'VITE_META_API_KEY',
-    'VITE_LLAMA_API_KEY',
-    'VITE_GROQ_API_KEY',
-    'VITE_OPENROUTER_API_KEY',
+    'VITE_MUSE_API_URL',
+    'VITE_MUSE_MODEL',
   ];
 
   beforeEach(() => {
@@ -74,10 +72,10 @@ describe('unified Meta config store', () => {
 
   it('round-trips a saved key through localStorage', () => {
     saveMetaConfig({
-      provider: 'groq',
-      modelName: 'llama-3.3-70b-versatile',
+      provider: 'meta',
+      modelName: 'muse-wonder-1.0',
       apiKey: 'test-key-123',
-      baseUrl: 'https://api.groq.com/openai/v1',
+      baseUrl: 'https://api.meta.ai/v1',
       temperature: 0.2,
     });
     expect(loadMetaConfig().apiKey).toBe('test-key-123');
@@ -87,10 +85,10 @@ describe('unified Meta config store', () => {
   it('makes the TopBar-saved key visible to MetaAIService (proofs/translation path)', () => {
     // Simulates UnifiedTopBar Save & Apply -> saveMetaConfig().
     saveMetaConfig({
-      provider: 'groq',
-      modelName: 'llama-3.3-70b-versatile',
+      provider: 'meta',
+      modelName: 'muse-wonder-1.0',
       apiKey: 'topbar-key-456',
-      baseUrl: 'https://api.groq.com/openai/v1',
+      baseUrl: 'https://api.meta.ai/v1',
       temperature: 0.2,
     });
     expect(MetaAIService.getApiKey()).toBe('topbar-key-456');
@@ -114,6 +112,23 @@ describe('unified Meta config store', () => {
   it('reports unconfigured when no key exists anywhere', () => {
     expect(MetaAIService.getApiKey()).toBe('');
     expect(MetaAIService.isConfigured()).toBe(false);
+  });
+
+  it('sanitizes legacy third-party configs back to Muse-only', () => {
+    localStorage.setItem(
+      META_CONFIG_STORAGE_KEY,
+      JSON.stringify({
+        provider: 'groq',
+        modelName: 'llama-3.3-70b-versatile',
+        apiKey: 'legacy-key',
+        baseUrl: 'https://api.groq.com/openai/v1',
+        temperature: 0.2,
+      })
+    );
+    const cfg = loadMetaConfig();
+    expect(cfg.provider).toBe('meta');
+    expect(cfg.baseUrl).toBe('https://api.meta.ai/v1');
+    expect(cfg.apiKey).toBe('legacy-key');
   });
 });
 

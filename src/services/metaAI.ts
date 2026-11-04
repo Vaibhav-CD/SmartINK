@@ -334,7 +334,7 @@ export class MetaAIService {
 
   /**
    * Discovers and generates distinct proof methodologies for a given theorem.
-   * Powered by Meta Models API (Llama 3.3 / Llama 3.2 Vision)
+   * Powered by Meta Muse API (Muse Wonder)
    */
   public async discoverProofs(
     theoremQuery: string,
@@ -651,8 +651,8 @@ Output ONLY strict JSON with this schema:
   }
 
   /**
-   * Answers General Knowledge (GK), scientific, and factual queries
-   * Connects to Meta Llama 3.3 when configured, or local knowledge bank fallback
+   * Answers General Knowledge (GK), scientific, and factual queries.
+   * Connects to Muse Spark when configured, or local knowledge bank fallback.
    */
   public async answerGeneralQuestion(query: string, customApiKey?: string): Promise<{
     title: string;

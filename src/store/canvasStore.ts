@@ -14,6 +14,7 @@ import { clampZoom, zoomAtScreenPoint } from '../engine/coordinates';
 import { parseAndEvaluateExpression } from '../services/calcInk/evaluateExpression';
 import { formatNumber } from '../services/calcInk/formatNumber';
 import { generateSyntheticHandwritingStrokes } from '../engine/syntheticInk';
+import { ReactiveDAG } from '../services/calcInk/reactiveDAG';
 
 interface CanvasState {
   workspace: WorkspaceData;
@@ -60,6 +61,7 @@ interface CanvasState {
   evaluateEquationText: (rawText: string, origin: Point) => SolvedEquation | null;
   updateVariableValue: (varName: string, newValue: number) => void;
   recalculateAllEquations: () => void;
+  solveInverseConstraint: (targetEqId: string, targetValue: number, freeVarName: string) => boolean;
 }
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
@@ -503,37 +505,33 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   updateVariableValue: (varName: string, newValue: number) => {
     const { workspace, activePageId } = get();
-    const nextGlobals = { ...workspace.globalVariables, [varName]: newValue };
+    const pageEquations = workspace.equations[activePageId] || [];
+
+    // Construct Reactive DAG to evaluate equations in exact topological dependency order
+    const dag = new ReactiveDAG(workspace.globalVariables);
+    for (const eq of pageEquations) {
+      dag.addOrUpdateEquation(eq.id, eq.rawExpression);
+    }
+    dag.setVariable(varName, newValue);
+    const evaluatedNodes = dag.evaluateForward();
+    const nextGlobals = dag.getAllVariables();
 
     // Update scrubber state
     const nextScrubbers = get().scrubbers.map((s) =>
-      s.variableName === varName ? { ...s, currentValue: newValue } : s
+      s.variableName.toLowerCase() === varName.toLowerCase()
+        ? { ...s, currentValue: newValue }
+        : s
     );
 
-    // Re-evaluate dependent equations across the page
-    const pageEquations = workspace.equations[activePageId] || [];
+    // Update equations with topological evaluations
     const updatedEquations = pageEquations.map((eq) => {
-      if (eq.assignedVariable === varName) {
+      const node = evaluatedNodes.get(eq.id);
+      if (node && node.value !== null) {
         return {
           ...eq,
-          resultValue: newValue,
-          formattedResult: formatNumber(newValue),
+          resultValue: node.value,
+          formattedResult: node.display || formatNumber(node.value),
         };
-      }
-
-      if (eq.variablesReferenced.includes(varName)) {
-        // Re-evaluate
-        const evalRes = parseAndEvaluateExpression(eq.rawExpression, nextGlobals);
-        if (evalRes.isSolved && evalRes.resultValue !== undefined) {
-          if (evalRes.assignedVariable) {
-            nextGlobals[evalRes.assignedVariable] = evalRes.resultValue;
-          }
-          return {
-            ...eq,
-            resultValue: evalRes.resultValue,
-            formattedResult: evalRes.formattedResult || eq.formattedResult,
-          };
-        }
       }
       return eq;
     });
@@ -554,19 +552,22 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   recalculateAllEquations: () => {
     const { workspace, activePageId } = get();
-    const globals = { ...workspace.globalVariables };
     const pageEquations = workspace.equations[activePageId] || [];
 
+    const dag = new ReactiveDAG(workspace.globalVariables);
+    for (const eq of pageEquations) {
+      dag.addOrUpdateEquation(eq.id, eq.rawExpression);
+    }
+    const evaluatedNodes = dag.evaluateForward();
+    const nextGlobals = dag.getAllVariables();
+
     const updated = pageEquations.map((eq) => {
-      const evalRes = parseAndEvaluateExpression(eq.rawExpression, globals);
-      if (evalRes.isSolved && evalRes.resultValue !== undefined) {
-        if (evalRes.assignedVariable) {
-          globals[evalRes.assignedVariable] = evalRes.resultValue;
-        }
+      const node = evaluatedNodes.get(eq.id);
+      if (node && node.value !== null) {
         return {
           ...eq,
-          resultValue: evalRes.resultValue,
-          formattedResult: evalRes.formattedResult || eq.formattedResult,
+          resultValue: node.value,
+          formattedResult: node.display || formatNumber(node.value),
         };
       }
       return eq;
@@ -574,11 +575,56 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
     const nextWs = {
       ...workspace,
-      globalVariables: globals,
+      globalVariables: nextGlobals,
       equations: { ...workspace.equations, [activePageId]: updated },
     };
 
     set({ workspace: nextWs });
     saveWorkspaceData(nextWs);
+  },
+
+  solveInverseConstraint: (targetEqId: string, targetValue: number, freeVarName: string): boolean => {
+    const { workspace, activePageId } = get();
+    const pageEquations = workspace.equations[activePageId] || [];
+
+    const dag = new ReactiveDAG(workspace.globalVariables);
+    for (const eq of pageEquations) {
+      dag.addOrUpdateEquation(eq.id, eq.rawExpression);
+    }
+
+    const res = dag.solveInverse(targetEqId, targetValue, freeVarName);
+    if (!res.success || res.solvedValue === null) {
+      return false;
+    }
+
+    const nextGlobals = dag.getAllVariables();
+    const evaluatedNodes = dag.evaluateForward();
+
+    const nextScrubbers = get().scrubbers.map((s) => {
+      const val = nextGlobals[s.variableName.toLowerCase()];
+      return typeof val === 'number' ? { ...s, currentValue: val } : s;
+    });
+
+    const updated = pageEquations.map((eq) => {
+      const node = evaluatedNodes.get(eq.id);
+      if (node && node.value !== null) {
+        return {
+          ...eq,
+          resultValue: node.value,
+          formattedResult: node.display || formatNumber(node.value),
+        };
+      }
+      return eq;
+    });
+
+    const nextWs = {
+      ...workspace,
+      globalVariables: nextGlobals,
+      equations: { ...workspace.equations, [activePageId]: updated },
+    };
+
+    set({ workspace: nextWs, scrubbers: nextScrubbers });
+    saveWorkspaceData(nextWs);
+    return true;
   },
 }));

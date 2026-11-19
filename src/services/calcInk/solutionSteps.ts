@@ -8,6 +8,7 @@
  */
 
 import { formatNumber as formatMathNumber } from './formatNumber';
+import { normalizeMathExpression } from './mathParser';
 
 export interface SolutionStep {
   /** Written working, e.g. "3 * 4 = 12". */
@@ -35,6 +36,7 @@ type Token =
 const CONSTANTS: Record<string, number> = {
   pi: Math.PI,
   e: Math.E,
+  tau: 2 * Math.PI,
 };
 
 const FUNCTIONS: Record<string, (x: number) => number> = {
@@ -373,12 +375,7 @@ class StepParser {
 }
 
 function normalize(raw: string): string {
-  return raw
-    .replace(/[×✕]/g, '*')
-    .replace(/[÷]/g, '/')
-    .replace(/–/g, '-')
-    .replace(/—/g, '-')
-    .trim();
+  return normalizeMathExpression(raw);
 }
 
 /**

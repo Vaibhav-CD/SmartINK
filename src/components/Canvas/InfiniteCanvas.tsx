@@ -32,6 +32,7 @@ import { solveWithSteps, type SolutionStep } from '../../services/calcInk/soluti
 import { transcribeWords } from '../../services/recognition/transcribe';
 import type { ConversationContext } from '../../services/copilot/conversationAgent';
 import { LassoCopilotModal } from '../Copilot/LassoCopilotModal';
+import { Quadtree, aabbFromPoints } from '../../services/calcInk/quadtree';
 import { 
   isStrokeIntersected, 
   isScratchGesture, 
@@ -373,13 +374,28 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
     onDiscoverProofs(item);
   }, [selectedFormulaText, selectionBbox, onDiscoverProofs]);
 
+  // High-performance Quadtree spatial index for O(log N) frustum culling and hit-testing
+  const spatialQuadtree = useMemo(() => {
+    const qt = new Quadtree<Stroke>();
+    for (const stroke of strokes) {
+      if (stroke.points && stroke.points.length > 0) {
+        const bounds = aabbFromPoints(stroke.points, (stroke.width || 3) + 2);
+        qt.insert({ id: stroke.id, bounds, data: stroke });
+      }
+    }
+    return qt;
+  }, [strokes]);
+
   // Spatial eraser helper (stroke mode deletes whole strokes, pixel mode splits them)
   const eraseAtPoint = useCallback((worldPt: Point) => {
     const eraserRadius = 20 / viewTransform.scale;
+    // Fast spatial index query: test only strokes near the eraser circle
+    const candidateStrokes = spatialQuadtree.queryPoint(worldPt, eraserRadius + 5);
+
     if (eraserMode === 'pixel' && onReplaceStrokes) {
       const ids: string[] = [];
       const replacements: Stroke[] = [];
-      for (const s of strokes) {
+      for (const s of candidateStrokes) {
         const parts = eraseStrokePixels(s, worldPt, eraserRadius);
         if (parts !== null) {
           ids.push(s.id);
@@ -392,11 +408,11 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
       }
       return;
     }
-    const hitStrokes = strokes.filter(s => isStrokeIntersected(s, worldPt, eraserRadius));
+    const hitStrokes = candidateStrokes.filter(s => isStrokeIntersected(s, worldPt, eraserRadius));
     if (hitStrokes.length > 0 && onDeleteStrokes) {
       onDeleteStrokes(hitStrokes.map(s => s.id));
     }
-  }, [strokes, viewTransform.scale, onDeleteStrokes, onReplaceStrokes, eraserMode]);
+  }, [spatialQuadtree, viewTransform.scale, onDeleteStrokes, onReplaceStrokes, eraserMode]);
 
   // Spacebar pan toggle
   useEffect(() => {
@@ -833,8 +849,21 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
       ctx.stroke();
     };
 
-    // Render persistent strokes
-    strokes.forEach((stroke) => {
+    // Viewport frustum culling: render only strokes visible inside or near the current screen bounds
+    const minVisX = (-viewTransform.x) / viewTransform.scale - 60;
+    const minVisY = (-viewTransform.y) / viewTransform.scale - 60;
+    const maxVisX = (width - viewTransform.x) / viewTransform.scale + 60;
+    const maxVisY = (height - viewTransform.y) / viewTransform.scale + 60;
+
+    const visibleStrokes = spatialQuadtree.query({
+      minX: minVisX,
+      minY: minVisY,
+      maxX: maxVisX,
+      maxY: maxVisY,
+    });
+
+    // Render persistent visible strokes
+    visibleStrokes.forEach((stroke) => {
       renderOrganicStroke(stroke.points, stroke.color, stroke.width);
     });
 
@@ -844,7 +873,7 @@ export const InfiniteCanvas: React.FC<InfiniteCanvasProps> = ({
     }
 
     ctx.restore();
-  }, [strokes, currentStrokePoints, penColor, strokeWidth, viewTransform, canvasSize]);
+  }, [spatialQuadtree, currentStrokePoints, penColor, strokeWidth, viewTransform, canvasSize]);
 
   return (
     <div

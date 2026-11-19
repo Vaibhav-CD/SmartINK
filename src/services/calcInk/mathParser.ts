@@ -18,6 +18,65 @@
 import { formatNumber as formatMathNumber } from './formatNumber';
 
 /**
+ * Normalizes math symbols, LaTeX tokens, Greek characters, radical roots,
+ * and unicode superscripts into standard arithmetic expressions.
+ */
+export function normalizeMathExpression(raw: string): string {
+  let s = raw.trim();
+
+  // Strip trailing equals
+  s = s.replace(/=+$/, '').trim();
+
+  // Standardize unicode dashes and minus
+  s = s.replace(/[−–—]/g, '-');
+
+  // Standardize multiplication
+  s = s.replace(/[×✕·•]/g, '*');
+
+  // Standardize division
+  s = s.replace(/[÷]/g, '/');
+
+  // Unicode superscript exponents: x² -> x^2, x³ -> x^3, etc.
+  const superscripts: Record<string, string> = {
+    '⁰': '^0', '¹': '^1', '²': '^2', '³': '^3', '⁴': '^4',
+    '⁵': '^5', '⁶': '^6', '⁷': '^7', '⁸': '^8', '⁹': '^9',
+  };
+  s = s.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹]/g, (m) => superscripts[m] || m);
+
+  // LaTeX \frac{a}{b} -> ((a)/(b)) (repeat to handle nested fractions)
+  while (/\\frac\{([^{}]+)\}\{([^{}]+)\}/.test(s)) {
+    s = s.replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, '(($1)/($2))');
+  }
+
+  // LaTeX \sqrt{a} -> sqrt(a)
+  while (/\\sqrt\{([^{}]+)\}/.test(s)) {
+    s = s.replace(/\\sqrt\{([^{}]+)\}/g, 'sqrt($1)');
+  }
+  // LaTeX \sqrt[n]{a} -> (a)^(1/n)
+  s = s.replace(/\\sqrt\[(\d+)\]\{([^{}]+)\}/g, '(($2)^(1/$1))');
+
+  // Radical symbol '√':
+  // e.g. √(16) -> sqrt(16)
+  s = s.replace(/√\s*\(([^)]+)\)/g, 'sqrt($1)');
+  // e.g. √16 -> sqrt(16), √x -> sqrt(x)
+  s = s.replace(/√\s*([0-9a-zA-Z.]+)/g, 'sqrt($1)');
+  // any remaining standalone √ -> sqrt
+  s = s.replace(/√/g, 'sqrt');
+
+  // Absolute value bars: |expr| -> abs(expr)
+  s = s.replace(/\|([^|]+)\|/g, 'abs($1)');
+
+  // Greek constants and symbols
+  s = s.replace(/\\pi\b|π/g, 'pi');
+  s = s.replace(/\\theta\b|θ/g, 'theta');
+  s = s.replace(/\\alpha\b|α/g, 'alpha');
+  s = s.replace(/\\beta\b|β/g, 'beta');
+  s = s.replace(/\\tau\b|τ/g, 'tau');
+
+  return s;
+}
+
+/**
  * Canonical single-argument function vocabulary. Convention everywhere:
  * `log` is base 10, `ln` is natural log — matching school-math notation.
  */
@@ -122,8 +181,8 @@ export class MathParser {
       };
     }
 
-    // Strip trailing equals sign if present (e.g., "18+4*3=" -> "18+4*3")
-    let cleaned = raw.replace(/=+$/, '').trim();
+    // Strip trailing equals sign and normalize math symbols (LaTeX, radicals, Greek, superscripts)
+    let cleaned = normalizeMathExpression(raw);
 
     // Check for variable assignment or algebraic equation: e.g., "x = 10 + 5", "2x + 4 = 10", "x^2 - 16 = 0"
     const assignmentMatch = cleaned.match(/^([a-zA-Z][a-zA-Z0-9]*)\s*=\s*(.+)$/);
@@ -154,14 +213,6 @@ export class MathParser {
       // If not an algebraic equation with unknowns, evaluate left side (e.g. "3 + 3 = 6" or "18 + 4*3 =")
       cleaned = lhs;
     }
-
-    // Normalize math symbols
-    // Replace unicode multiply × with *, unicode divide ÷ with /
-    cleaned = cleaned
-      .replace(/[×✕]/g, '*')
-      .replace(/[÷]/g, '/')
-      .replace(/–/g, '-') // en-dash
-      .replace(/—/g, '-'); // em-dash
 
     try {
       const tokens = this.tokenize(cleaned);
@@ -482,6 +533,10 @@ export class MathParser {
             stack.push(Math.E);
             continue;
           }
+          if (lower === 'tau') {
+            stack.push(2 * Math.PI);
+            continue;
+          }
           return { value: null, error: `Undefined variable '${token}'` };
         }
       }
@@ -551,7 +606,7 @@ export class MathParser {
     const mergedVars = { ...this.globalVariables, ...vars };
 
     // 1. Identify unknown variables in the equation
-    const reservedNames = new Set([...MATH_FUNCTION_NAMES, 'pi', 'e', 'neg']);
+    const reservedNames = new Set([...MATH_FUNCTION_NAMES, 'pi', 'e', 'tau', 'neg']);
     const extractVars = (str: string): string[] => {
       const matches = str.match(/[a-zA-Z][a-zA-Z0-9]*/g) || [];
       return matches

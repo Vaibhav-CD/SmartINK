@@ -209,4 +209,48 @@ describe('CalcInk Deterministic BODMAS Math Engine', () => {
       expect(res2.display).toBe('x = 2, 3');
     });
   });
+
+  describe('2D Spatial Math Grammar & Expanded Symbol Vocabulary', () => {
+    it('evaluates radical square roots (√16, √(9 + 16))', () => {
+      const res1 = MathParser.evaluate('√16');
+      expect(res1.success).toBe(true);
+      expect(res1.value).toBe(4);
+
+      const res2 = MathParser.evaluate('√(9 + 16)');
+      expect(res2.success).toBe(true);
+      expect(res2.value).toBe(5);
+    });
+
+    it('evaluates LaTeX style \\sqrt and \\frac', () => {
+      const resSqrt = MathParser.evaluate('\\sqrt{49} + 3');
+      expect(resSqrt.success).toBe(true);
+      expect(resSqrt.value).toBe(10);
+
+      const resFrac = MathParser.evaluate('\\frac{20}{4} + 2');
+      expect(resFrac.success).toBe(true);
+      expect(resFrac.value).toBe(7);
+    });
+
+    it('evaluates Greek constants pi (π) and tau (τ)', () => {
+      const resPi = MathParser.evaluate('2 * π');
+      expect(resPi.success).toBe(true);
+      expect(resPi.value).toBeCloseTo(2 * Math.PI, 6);
+
+      const resTau = MathParser.evaluate('tau / 2');
+      expect(resTau.success).toBe(true);
+      expect(resTau.value).toBeCloseTo(Math.PI, 6);
+    });
+
+    it('handles unicode superscripts x² and numerical powers', () => {
+      const res = MathParser.evaluate('5² + 3');
+      expect(res.success).toBe(true);
+      expect(res.value).toBe(28);
+    });
+
+    it('evaluates absolute value bars: |-15| + 5 = 20', () => {
+      const res = MathParser.evaluate('|-15| + 5');
+      expect(res.success).toBe(true);
+      expect(res.value).toBe(20);
+    });
+  });
 });
